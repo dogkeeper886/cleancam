@@ -62,11 +62,12 @@ final class CameraController: NSObject, ObservableObject {
         videoQueue.async { self.encoder.reset() }
     }
 
-    /// Keeps the preview and the stream upright on both landscape sides.
-    /// Portrait and flat positions keep the last landscape side, so the stream stays 16:9.
+    /// Keeps the preview and the stream upright: portrait or either landscape side.
+    /// Flat and upside-down positions keep the last orientation.
     func updateOrientation(_ deviceOrientation: UIDeviceOrientation) {
         let orientation: AVCaptureVideoOrientation
         switch deviceOrientation {
+        case .portrait: orientation = .portrait
         case .landscapeLeft: orientation = .landscapeRight  // home button on the right
         case .landscapeRight: orientation = .landscapeLeft
         default: return
@@ -75,6 +76,11 @@ final class CameraController: NSObject, ObservableObject {
             self.videoOrientation = orientation
             self.applyOrientation()
         }
+    }
+
+    /// Stops drawing the preview while the screen is off; the stream keeps running.
+    func setPreviewEnabled(_ enabled: Bool) {
+        previewLayer.connection?.isEnabled = enabled
     }
 
     func setZoom(_ value: Double) {

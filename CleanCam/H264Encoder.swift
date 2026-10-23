@@ -1,15 +1,19 @@
+import CoreImage
 import VideoToolbox
 
 /// Hardware H.264 encoder. Hands out each frame as an Annex-B byte stream, the format ffmpeg reads with `-f h264`.
+/// The stream is always 1920x1080 so the PC's webcam never changes size; portrait frames get black bars.
 final class H264Encoder {
     var onEncoded: ((_ data: Data, _ isKeyframe: Bool) -> Void)?
 
+    private static let width = 1920
+    private static let height = 1080
     private static let startCode: [UInt8] = [0, 0, 0, 1]
 
     // Used on the video queue only.
     private var session: VTCompressionSession?
-    private var width: Int32 = 0
-    private var height: Int32 = 0
+    private let ciContext = CIContext()
+    private var letterboxPool: CVPixelBufferPool?
 
     private let lock = NSLock()
     private var keyframeRequested = false
@@ -21,15 +25,9 @@ final class H264Encoder {
     }
 
     func encode(_ sampleBuffer: CMSampleBuffer) {
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let width = Int32(CVPixelBufferGetWidth(imageBuffer))
-        let height = Int32(CVPixelBufferGetHeight(imageBuffer))
-        if session == nil || width != self.width || height != self.height {
-            reset()
-            session = Self.makeSession(width: width, height: height)
-            self.width = width
-            self.height = height
-        }
+        guard let source = CMSampleBufferGetImageBuffer(sampleBuffer),
+              let imageBuffer = fitToStream(source) else { return }
+        if session == nil { session = Self.makeSession() }
         guard let session else { return }
 
         lock.lock()
@@ -59,10 +57,39 @@ final class H264Encoder {
         session = nil
     }
 
-    private static func makeSession(width: Int32, height: Int32) -> VTCompressionSession? {
+    /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
+    private func fitToStream(_ source: CVPixelBuffer) -> CVPixelBuffer? {
+        if CVPixelBufferGetWidth(source) == Self.width && CVPixelBufferGetHeight(source) == Self.height {
+            return source
+        }
+        if letterboxPool == nil {
+            let attributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: Self.width,
+                kCVPixelBufferHeightKey as String: Self.height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+            ]
+            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &letterboxPool)
+        }
+        var output: CVPixelBuffer?
+        guard let letterboxPool,
+              CVPixelBufferPoolCreatePixelBuffer(nil, letterboxPool, &output) == kCVReturnSuccess,
+              let output else { return nil }
+
+        let frame = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
+        let image = CIImage(cvPixelBuffer: source)
+        let scale = min(frame.width / image.extent.width, frame.height / image.extent.height)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let centered = scaled.transformed(by: CGAffineTransform(
+            translationX: (frame.width - scaled.extent.width) / 2, y: (frame.height - scaled.extent.height) / 2))
+        ciContext.render(centered.composited(over: CIImage(color: .black).cropped(to: frame)), to: output)
+        return output
+    }
+
+    private static func makeSession() -> VTCompressionSession? {
         var session: VTCompressionSession?
         VTCompressionSessionCreate(
-            allocator: nil, width: width, height: height, codecType: kCMVideoCodecType_H264,
+            allocator: nil, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
             encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard let session else { return nil }
