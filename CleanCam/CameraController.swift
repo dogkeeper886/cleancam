@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import UIKit
 
 /// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to `port`.
 final class CameraController: NSObject, ObservableObject {
@@ -20,9 +21,9 @@ final class CameraController: NSObject, ObservableObject {
     private let videoQueue = DispatchQueue(label: "cleancam.video")
     private let encoder = H264Encoder()
     private let server = StreamServer(port: CameraController.port)
-    private var device: AVCaptureDevice?  // sessionQueue only
-    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
-    private var rotationObservations: [NSKeyValueObservation] = []
+    // Used on sessionQueue only.
+    private var device: AVCaptureDevice?
+    private var videoOrientation = AVCaptureVideoOrientation.landscapeRight
 
     override init() {
         super.init()
@@ -59,6 +60,21 @@ final class CameraController: NSObject, ObservableObject {
         server.stop()
         sessionQueue.async { self.session.stopRunning() }
         videoQueue.async { self.encoder.reset() }
+    }
+
+    /// Keeps the preview and the stream upright on both landscape sides.
+    /// Portrait and flat positions keep the last landscape side, so the stream stays 16:9.
+    func updateOrientation(_ deviceOrientation: UIDeviceOrientation) {
+        let orientation: AVCaptureVideoOrientation
+        switch deviceOrientation {
+        case .landscapeLeft: orientation = .landscapeRight  // home button on the right
+        case .landscapeRight: orientation = .landscapeLeft
+        default: return
+        }
+        sessionQueue.async {
+            self.videoOrientation = orientation
+            self.applyOrientation()
+        }
     }
 
     func setZoom(_ value: Double) {
@@ -99,6 +115,7 @@ final class CameraController: NSObject, ObservableObject {
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
         session.commitConfiguration()
         self.device = device
+        applyOrientation()
 
         let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
         let wideZoom = hasUltraWide ? (device.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 1) : 1
@@ -109,39 +126,19 @@ final class CameraController: NSObject, ObservableObject {
             self.zoomRange = range
             self.zoom = wideZoom
             self.zoomDisplayScale = wideZoom
-            self.observeRotation(of: device)
         }
     }
 
-    private func observeRotation(of device: AVCaptureDevice) {
-        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
-        rotationCoordinator = coordinator
-        setPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
-        setStreamRotation(coordinator.videoRotationAngleForHorizonLevelCapture)
-        rotationObservations = [
-            coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: .new) { [weak self] _, change in
-                guard let angle = change.newValue else { return }
-                DispatchQueue.main.async { self?.setPreviewRotation(angle) }
-            },
-            coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: .new) { [weak self] _, change in
-                guard let angle = change.newValue else { return }
-                self?.setStreamRotation(angle)
-            },
-        ]
-    }
-
-    private func setPreviewRotation(_ angle: CGFloat) {
-        guard let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(angle) else { return }
-        connection.videoRotationAngle = angle
-    }
-
-    /// The stream stays landscape: it follows the phone between the two landscape sides and ignores portrait.
-    private func setStreamRotation(_ angle: CGFloat) {
-        guard angle == 0 || angle == 180 else { return }
-        sessionQueue.async {
-            guard let connection = self.videoOutput.connection(with: .video),
-                  connection.isVideoRotationAngleSupported(angle) else { return }
-            connection.videoRotationAngle = angle
+    /// Called on sessionQueue.
+    private func applyOrientation() {
+        let orientation = videoOrientation
+        if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
+            connection.videoOrientation = orientation
+        }
+        DispatchQueue.main.async {
+            if let connection = self.previewLayer.connection, connection.isVideoOrientationSupported {
+                connection.videoOrientation = orientation
+            }
         }
     }
 

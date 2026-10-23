@@ -30,7 +30,9 @@ final class StreamServer {
     }
 
     var hasClients: Bool {
-        lock.withLock { clientCount > 0 }
+        lock.lock()
+        defer { lock.unlock() }
+        return clientCount > 0
     }
 
     func start() {
@@ -106,7 +108,9 @@ final class StreamServer {
 
     private func clientsChanged() {
         let count = clients.count
-        lock.withLock { clientCount = count }
+        lock.lock()
+        clientCount = count
+        lock.unlock()
         onClientsChanged?(count)
     }
 }

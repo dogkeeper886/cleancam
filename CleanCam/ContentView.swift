@@ -13,8 +13,12 @@ struct ContentView: View {
         }
         .background(Color.black)
         .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
-        .onChange(of: scenePhase, initial: true) { _, phase in
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            camera.updateOrientation(UIDevice.current.orientation)
+            camera.start()
+        }
+        .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
                 UIApplication.shared.isIdleTimerDisabled = true
@@ -25,6 +29,9 @@ struct ContentView: View {
             default:
                 break
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            camera.updateOrientation(UIDevice.current.orientation)
         }
     }
 

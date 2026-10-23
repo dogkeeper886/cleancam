@@ -15,7 +15,9 @@ final class H264Encoder {
     private var keyframeRequested = false
 
     func requestKeyframe() {
-        lock.withLock { keyframeRequested = true }
+        lock.lock()
+        keyframeRequested = true
+        lock.unlock()
     }
 
     func encode(_ sampleBuffer: CMSampleBuffer) {
@@ -30,10 +32,10 @@ final class H264Encoder {
         }
         guard let session else { return }
 
-        let forceKeyframe = lock.withLock { () -> Bool in
-            defer { keyframeRequested = false }
-            return keyframeRequested
-        }
+        lock.lock()
+        let forceKeyframe = keyframeRequested
+        keyframeRequested = false
+        lock.unlock()
         let frameProperties: CFDictionary? = forceKeyframe
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
             : nil
