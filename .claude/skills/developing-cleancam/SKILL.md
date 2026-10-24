@@ -11,7 +11,7 @@ description: >-
 Set up CleanCam on a real iPhone and Linux PC:
 1. Confirm the user has an iPhone, its USB cable and a Linux PC; CleanCam needs no Mac.
 2. Use the USB or WiFi stream for the clean picture, since an HDMI adapter mirrors the phone screen with its buttons.
-3. Lower `deploymentTarget` in `project.yml` when it is above the iPhone's iOS (Settings → General → About), since the phone refuses an app built for a newer iOS.
+3. Switch to the `developing-cleancam-legacy` skill for a 32-bit iPhone on iOS 10, such as the iPhone 5 (Settings → General → About), since this app needs iOS 15.
 4. Sign with the user's free Apple ID through plumesign, since TestFlight needs a paid Apple Developer account and an App Store Connect upload that this repo does not do.
 5. Set up the PC's tools from `reference/host-setup.md`.
 6. Ask the user to plug the iPhone straight into the PC, without a hub, and unlock it.

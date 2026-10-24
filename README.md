@@ -6,7 +6,7 @@ CleanCam sends only the camera's picture and the iPhone's microphone over the US
 
 ## The CleanCam app
 
-CleanCam streams the back camera's own frames instead of the screen, so the PC receives the picture without the phone's overlays. The microphone and the loudspeaker each use a port of their own.
+CleanCam streams the back camera's frames instead of the screen, so the PC receives the clean picture.
 
 ![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080 and 30 fps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire pipe-tunnel source, the CleanCam microphone; and cat passes what apps play to the CleanCam speaker, a pipe-tunnel sink, back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
 
@@ -21,7 +21,7 @@ CleanCam streams the back camera's own frames instead of the screen, so the PC r
 
 ## Install the app
 
-An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux PC lacks both. Without them the app stays unbuilt and unsigned, and an iPhone runs only signed apps. GitHub Actions builds the app, and plumesign signs and installs it with a free Apple ID over the USB cable.
+An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux PC lacks both. The app then stays unbuilt and unsigned, and an iPhone runs only signed apps. GitHub Actions builds the app, and plumesign signs and installs it with a free Apple ID over the USB cable.
 
 ![The Build workflow on GitHub builds an unsigned CleanCam.ipa on every push. On the Linux PC: 1, get the IPA; 2, install plumesign. On the iPhone: 3, connect it and tap Trust. On the PC: 4, log in with your Apple ID; 5, sign and install over the USB cable. On the iPhone: 6, trust the developer, after turning on Developer Mode on iOS 16 or later. Then open CleanCam, which runs for 7 days.](docs/images/install-steps.png)
 
@@ -31,7 +31,7 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
    ```
    In a fork, enable the workflow in the Actions tab first.
 2. **Install plumesign**, Impactor's command-line signer. Put it on `PATH` or set `PLUMESIGN`. `tools/plumesign.sh` runs it natively, or in podman or docker when it needs a newer glibc than the PC has.
-3. **Connect the iPhone.** Plug it directly into a port on the PC, since hubs can drop the link. Unlock it and tap "Trust This Computer".
+3. **Connect the iPhone.** Plug it directly into the PC, since hubs can drop the link. Unlock it and tap "Trust This Computer".
 4. **Log in** with your Apple ID. Type the password and 2FA code at the prompts; the password shows as you type.
    ```sh
    tools/plumesign.sh account login -u <your Apple ID>
@@ -42,11 +42,19 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
    ```
 6. **Trust it on the iPhone.** On iOS 16 or later, turn on Developer Mode in Settings → Privacy & Security first. Then trust your Apple ID under Settings → General → VPN & Device Management.
 
-The app needs **iOS 15 or later**. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
+The app needs **iOS 15 or later**; an iPhone 5 or 5c on iOS 10 runs [CleanCamLegacy](#iphone-5-and-5c) instead. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
+
+These phones were tested by hand over the USB cable, with the video, the microphone and the speaker in a video call:
+
+| Phone | iOS | App |
+|---|---|---|
+| iPhone 5 | 10.3.4 | CleanCamLegacy |
+| iPhone 7 | 15.8.8 | CleanCam |
+| iPhone X | 16.7.16 | CleanCam |
 
 ## Receive on the PC
 
-`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server, with `pw-cli`; without it, the receiver runs video only.
+`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server, with `pw-cli`; on another sound server, the receiver runs video only.
 
 ![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera, the microphone and the speaker in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
 
@@ -73,15 +81,15 @@ The receiver reads four settings from the environment:
 
 ## Renew after 7 days
 
-A free Apple ID signs CleanCam for 7 days, counted from step 5. When the signing expires, the app stays on the iPhone, but iOS refuses to open it. The webcam goes dark, often right before a call. Running step 5 again signs the app for another 7 days.
+A free Apple ID signs CleanCam for 7 days, counted from step 5. Once the 7 days pass, the app stays on the iPhone, but iOS refuses to open it. The webcam goes dark, often right before a call. Run step 5 again to sign the app for another 7 days.
 
 ![Sign and install on the PC with README step 5. CleanCam then works on the iPhone for 7 days. On day 7 it won't open, while the PC side keeps waiting. Run step 5 again with the same IPA and no rebuild to start over; renewing early restarts the clock. When step 5 fails with a login or session error, log in again with step 4, then run step 5.](docs/images/renew-cycle.png)
 
-- **On day 7:** the icon stays, but tapping it opens nothing or shows an alert. The receiver and the video app keep running and wait for the stream.
-- **Renew:** plug the iPhone in and run step 5 again with the same `build/CleanCam.ipa`. Skip the rebuild, and keep the app on the phone.
+- **On day 7:** the icon stays, but tapping it leaves you on the home screen or shows an alert. The receiver and the video app keep running and wait for the stream.
+- **Renew:** plug the iPhone in and run step 5 again with the same `build/CleanCam.ipa`. Keep the app on the phone.
 - **Renew early:** step 5 works on any day before the deadline and restarts the 7 days, so renew before an important call.
-- **Log in again** with step 4 when step 5 fails with a login or session error, for example after an Apple ID password change.
-- **Trust:** a re-sign with the same Apple ID usually keeps the trust from step 6.
+- **Log in again** with step 4 when step 5 fails with a login or session error, for example after you change your Apple ID password.
+- **Trust:** when you sign again with the same Apple ID, the iPhone usually still trusts it from step 6.
 - **Check the deadline** in the signing profile on the iPhone:
   ```sh
   d=$(mktemp -d) && ideviceprovision copy "$d" >/dev/null
@@ -89,13 +97,37 @@ A free Apple ID signs CleanCam for 7 days, counted from step 5. When the signing
   ```
 - **Sign for a year** with the paid Apple Developer Program ($99 a year), instead of renewing every week.
 
+## iPhone 5 and 5c
+
+The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls, ports and stream formats, so the receiver stays as it is, and it builds on the Linux PC.
+
+![On GitHub releases, pinned downloads of the iOS 11.4 SDK and the theos toolchain feed the first build. On the Linux PC: 1, build the IPA with tools/build-legacy.sh in a container. On the iPhone 5 on iOS 10: 2, connect only this iPhone, plugged in directly, and tap Trust. On the PC: 3, sign and install CleanCam-legacy.ipa with plumesign. On the iPhone: 4, trust the developer under Device Management, with no Developer Mode. Then open CleanCam, which runs for 7 days.](docs/images/legacy-steps.png)
+
+1. **Build the IPA.** The first time it runs, `tools/build-legacy.sh` downloads the iOS 11.4 SDK and the theos project's iOS toolchain, checks them against pinned checksums, compiles in podman or docker, and writes `build/CleanCam-legacy.ipa`:
+   ```sh
+   tools/build-legacy.sh
+   ```
+2. **Connect only this iPhone**, straight into the PC. Unlock it and tap "Trust This Computer". With one phone plugged in, the next step and the receiver pick it.
+3. **Sign and install** with the Apple ID from step 4 of [Install the app](#install-the-app):
+   ```sh
+   tools/plumesign.sh sign --package build/CleanCam-legacy.ipa --apple-id --register-and-install --udid "$(idevice_id -l | head -1)"
+   ```
+4. **Trust the developer** under Settings → General → Device Management. On iOS 10, this trust is the only setting.
+
+Then open CleanCam, allow the camera and microphone prompts, and [receive on the PC](#receive-on-the-pc) as with the main app. iOS 10 asks for only these two.
+
+- **Renew** every 7 days with step 3 and the same IPA.
+- **iPhone 5s, 6 and 6 Plus** fall between the two apps: they stop at iOS 12, which runs only 64-bit apps, while the main app needs iOS 15.
+
 ## Change the app
 
 Change the app from any computer: edit the Swift code in `CleanCam/`, then push. The Build workflow generates the Xcode project from `project.yml` with XcodeGen and compiles it on a GitHub macOS runner. Keep the code within the `deploymentTarget` in `project.yml` (iOS 15), and guard newer APIs with `if #available`.
 
+CleanCamLegacy changes on the PC instead: edit the Objective-C code in `CleanCamLegacy/`, then repeat steps 1 and 3 of [iPhone 5 and 5c](#iphone-5-and-5c). Keep it within iOS 10's APIs; clang warns about newer ones. When you change the Swift app, port the change to `CleanCamLegacy/` too, so the iPhone 5 gets it.
+
 ## Setup details and troubleshooting
 
-`.claude/skills/developing-cleancam/` holds the real-world setup as a Claude Code skill:
+`.claude/skills/developing-cleancam/` is a Claude Code skill that sets up the iPhone, the PC and the signer, and `.claude/skills/developing-cleancam-legacy/` sets up the iPhone 5 the same way. Both use these reference files:
 
 - **[`host-setup.md`](.claude/skills/developing-cleancam/reference/host-setup.md):** packages per distribution, how to pick and verify a plumesign release, and the extra steps RHEL 9 family systems need.
-- **[`troubleshooting.md`](.claude/skills/developing-cleancam/reference/troubleshooting.md):** symptoms, causes and fixes, from USB hubs and pairing errors to Apple sign-in errors and a missing camera.
+- **[`troubleshooting.md`](.claude/skills/developing-cleancam/reference/troubleshooting.md):** symptoms, causes and fixes, from USB hubs and pairing errors to Apple sign-in errors, iPhone 5 build errors and a missing camera.
