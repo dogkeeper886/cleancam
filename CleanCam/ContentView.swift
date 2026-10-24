@@ -48,16 +48,24 @@ struct ContentView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(camera.status)
-            HStack(spacing: 12) {
-                if camera.zoomRange.lowerBound < camera.zoomRange.upperBound {
+            if camera.zoomRange.lowerBound < camera.zoomRange.upperBound {
+                HStack(spacing: 12) {
                     Slider(value: Binding(get: { camera.zoom }, set: { camera.setZoom($0) }), in: camera.zoomRange)
                         .frame(maxWidth: 280)
                     Text(String(format: "%.1fx", camera.zoom / camera.zoomDisplayScale))
                         .frame(width: 44)
                 }
+            }
+            // The buttons get their own row so all three fit an upright phone.
+            HStack(spacing: 12) {
                 Button(camera.isLocked ? "Unlock" : "Lock") { camera.toggleLock() }
                     .buttonStyle(.borderedProminent)
                     .tint(camera.isLocked ? .orange : .gray)
+                if camera.hasMic {
+                    Button(camera.isMicOn ? "Mute" : "Unmute") { camera.toggleMic() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(camera.isMicOn ? .gray : .red)
+                }
                 Button("Screen off") { setScreenOff(true) }
                     .buttonStyle(.borderedProminent)
                     .tint(.gray)

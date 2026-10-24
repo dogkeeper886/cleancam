@@ -12,13 +12,14 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | `iproxy` (libusbmuxd) | forwarding the stream port over USB | `command -v iproxy` |
 | ffmpeg with H.264 decoding | decoding the stream | `ffmpeg -hide_banner -decoders \| grep -w h264` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
+| PipeWire as the sound server, with `pw-cli` | the "CleanCam" microphone, through PipeWire's pipe-tunnel module | `wpctl status` lists "CleanCam" while the receiver runs |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
 | podman or docker | running plumesign when the host's glibc is too old for it | `command -v podman docker` |
 
 Install them with the distribution's packages:
 
-- **Debian / Ubuntu:** `sudo apt install usbmuxd libimobiledevice-utils libusbmuxd-tools ffmpeg v4l2loopback-dkms`
-- **Fedora**, with RPM Fusion enabled for ffmpeg and v4l2loopback: `sudo dnf install usbmuxd libimobiledevice-utils libusbmuxd-utils ffmpeg v4l2loopback`
+- **Debian / Ubuntu:** `sudo apt install usbmuxd libimobiledevice-utils libusbmuxd-tools ffmpeg v4l2loopback-dkms pipewire-bin`
+- **Fedora**, with RPM Fusion enabled for ffmpeg and v4l2loopback: `sudo dnf install usbmuxd libimobiledevice-utils libusbmuxd-utils ffmpeg v4l2loopback pipewire-utils`
 - **RHEL, Rocky or Alma 9:** see RHEL 9 family below.
 
 When `modinfo v4l2loopback` still fails after a dkms or akmod build, run `sudo depmod -a`. The receiver loads the module itself when `/dev/video${VIDEO_NR:-10}` is missing.
@@ -42,7 +43,7 @@ Plug the iPhone straight into the PC, unlock it and tap "Trust This Computer". `
 
 ## RHEL 9 family
 
-- **Repos:** EPEL provides `libusbmuxd-utils`, `libimobiledevice-utils` and the `-devel` packages. RPM Fusion provides `ffmpeg` and `v4l2loopback`.
+- **Repos:** EPEL provides `libusbmuxd-utils`, `libimobiledevice-utils` and the `-devel` packages. RPM Fusion provides `ffmpeg` and `v4l2loopback`. The base repos provide `pipewire-utils`.
 - **usbmuxd:** EPEL has no usbmuxd daemon. Build release 1.1.1, which matches EPEL's libimobiledevice 1.3.0:
 
 ```bash
