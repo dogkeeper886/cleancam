@@ -44,6 +44,16 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
 
 The app needs **iOS 15 or later**; an iPhone 5 or 5c on iOS 10 runs [CleanCamLegacy](#iphone-5-and-5c) instead. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
 
+These phones were tested by hand, over the USB cable:
+
+| Phone | iOS | App | Tested |
+|---|---|---|---|
+| iPhone 5 | 10.3.4 | CleanCamLegacy | 1920x1080 video at 30 fps held sideways, the microphone at 48 kHz, and the microphone and speaker in a video call |
+| iPhone 7 | 15.8.8 | CleanCam | video, microphone and speaker in Zoom |
+| iPhone X | 16.7.16 | CleanCam | install with Developer Mode, and streaming to the PC |
+
+The repo has no automated tests; CI only builds the main app. On the iPhone 5, the frame rate held upright and the Lock, zoom and Screen off buttons are still untested.
+
 ## Receive on the PC
 
 `receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server, with `pw-cli`; without it, the receiver runs video only.
