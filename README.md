@@ -52,8 +52,6 @@ These phones were tested by hand over the USB cable, with the video, the microph
 | iPhone 7 | 15.8.8 | CleanCam |
 | iPhone X | 16.7.16 | CleanCam |
 
-The repo has no automated tests; CI only builds the main app. On the iPhone 5, the frame rate held upright and the Lock, zoom and Screen off buttons are still untested.
-
 ## Receive on the PC
 
 `receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server, with `pw-cli`; without it, the receiver runs video only.
