@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="952" height="336" viewBox="0 0 952 336">
+  <!-- Source of renew-cycle.png: rsvg-convert -z 2 -o renew-cycle.png renew-cycle.svg -->
+  <style>
+    text { font-family: 'Liberation Sans', Arial, Helvetica, sans-serif; }
+    .bg { fill: #ffffff; stroke: #e5e7eb; }
+    .pc { fill: #ecfdf5; stroke: #10b981; stroke-width: 2; }
+    .phone { fill: #eef2ff; stroke: #6366f1; stroke-width: 2; }
+    .expired { fill: #fef2f2; stroke: #ef4444; stroke-width: 2; }
+    .note { fill: #fffbeb; stroke: #f59e0b; stroke-width: 1.5; }
+    .title { font-size: 15px; font-weight: 700; fill: #111827; }
+    .sub { font-size: 12.5px; fill: #4b5563; }
+    .edge { fill: none; stroke: #334155; stroke-width: 1.6; }
+    .alt { fill: none; stroke: #64748b; stroke-width: 1.6; stroke-dasharray: 6 4; }
+    .label { font-size: 12.5px; font-weight: 700; fill: #334155; }
+    .note-title { font-size: 13px; font-weight: 700; fill: #92400e; }
+    .note-text { font-size: 12.5px; fill: #78350f; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-alt" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="951" height="335" rx="14"/>
+
+  <!-- Renew early, any time before day 7 -->
+  <path class="alt" d="M476,100 V60 H176 V100" marker-end="url(#arrow-alt)"/>
+  <text class="label" x="326" y="50" text-anchor="middle">renew early any time: the clock restarts</text>
+
+  <!-- The cycle -->
+  <rect class="pc" x="66" y="100" width="220" height="64" rx="8"/>
+  <text class="title" x="176" y="128" text-anchor="middle">Sign and install</text>
+  <text class="sub" x="176" y="147" text-anchor="middle">on the PC: README step 5</text>
+
+  <rect class="phone" x="366" y="100" width="220" height="64" rx="8"/>
+  <text class="title" x="476" y="128" text-anchor="middle">CleanCam works</text>
+  <text class="sub" x="476" y="147" text-anchor="middle">on the iPhone, for 7 days</text>
+
+  <rect class="expired" x="666" y="100" width="220" height="64" rx="8"/>
+  <text class="title" x="776" y="128" text-anchor="middle">CleanCam won't open</text>
+  <text class="sub" x="776" y="147" text-anchor="middle">the PC side keeps waiting</text>
+
+  <path class="edge" d="M286,132 H366" marker-end="url(#arrow)"/>
+  <text class="label" x="326" y="124" text-anchor="middle">signed</text>
+  <path class="edge" d="M586,132 H666" marker-end="url(#arrow)"/>
+  <text class="label" x="626" y="124" text-anchor="middle">day 7</text>
+
+  <!-- Expired: sign again -->
+  <path class="edge" d="M776,164 V206 H176 V164" marker-end="url(#arrow)"/>
+  <text class="label" x="476" y="228" text-anchor="middle">run step 5 again: same IPA, no rebuild</text>
+
+  <!-- When step 5 fails -->
+  <rect class="note" x="216" y="252" width="520" height="56" rx="8"/>
+  <text class="note-title" x="476" y="275" text-anchor="middle">Step 5 fails with a login or session error?</text>
+  <text class="note-text" x="476" y="295" text-anchor="middle">Log in again with step 4, then run step 5.</text>
+</svg>
