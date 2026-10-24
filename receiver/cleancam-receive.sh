@@ -3,7 +3,7 @@
 # and the phone's microphone as a microphone named "CleanCam".
 #   cleancam-receive.sh             iPhone on USB (needs usbmuxd running and iproxy)
 #   cleancam-receive.sh PHONE_IP    iPhone on the same WiFi
-# Needs ffmpeg and the v4l2loopback kernel module; the microphone needs PipeWire (pw-cat).
+# Needs ffmpeg and the v4l2loopback kernel module; the microphone needs PipeWire (pw-cli).
 set -euo pipefail
 
 PORT=${PORT:-5000}              # TCP port the app sends video on
@@ -12,7 +12,7 @@ VIDEO_NR=${VIDEO_NR:-10}        # webcam device number: /dev/video$VIDEO_NR
 VIDEO=/dev/video$VIDEO_NR
 HOST=${1:-}
 
-# Stop what this script started in the background: iproxy, the audio loop and pw-cat.
+# Stop what this script started in the background: iproxy, the CleanCam microphone and the audio loop.
 trap 'pkill -P $$ 2>/dev/null' EXIT
 
 if [[ ! -e $VIDEO ]]; then
@@ -26,19 +26,24 @@ if [[ -z $HOST ]]; then
   HOST=127.0.0.1
 fi
 
-if command -v pw-cat >/dev/null; then
-  # The raw audio becomes a PipeWire source named "CleanCam", which video apps list as a microphone.
-  # aresample follows the arrival time, so the phone's and the PC's clocks drifting apart adds no lag;
-  # always-process keeps the source running while no app records, so audio never piles up.
+if command -v pw-cli >/dev/null; then
+  FIFO=${XDG_RUNTIME_DIR:-/tmp}/cleancam-mic.fifo
+  # A PipeWire source named "CleanCam", which video apps list as a microphone, reads the raw audio from FIFO.
+  # It plays silence while nothing arrives and matches its rate to the phone's clock;
+  # always-process keeps it reading while no app records, so audio never piles up.
+  pw-cli -m load-module libpipewire-module-pipe-tunnel "{ tunnel.mode = source pipe.filename = \"$FIFO\"
+    audio.format = S16LE audio.rate = 48000 audio.channels = 1 audio.position = [ MONO ]
+    stream.props = { node.name = cleancam-mic node.description = CleanCam node.always-process = true } }" >/dev/null &
   while true; do
-    ffmpeg -hide_banner -loglevel warning \
-      -use_wallclock_as_timestamps 1 -f s16le -ar 48000 -ac 1 -i "tcp://$HOST:$AUDIO_PORT" \
-      -af aresample=async=100:min_comp=0.02:first_pts=0 -f s16le - || true
-    sleep 1  # the app is closed or not reachable yet; try again
-  done | pw-cat --playback --raw --rate 48000 --channels 1 --format s16 --latency 20ms \
-    -P '{ media.class=Audio/Source node.name=cleancam-mic node.description=CleanCam node.always-process=true }' - &
+    # ffmpeg writes whole samples, so a reconnect never shifts the bytes out of order.
+    if [[ -p $FIFO ]]; then
+      ffmpeg -hide_banner -loglevel warning \
+        -f s16le -ar 48000 -ac 1 -i "tcp://$HOST:$AUDIO_PORT" -f s16le -y "$FIFO" || true
+    fi
+    sleep 1  # the app is closed or not reachable yet, or the microphone is starting; try again
+  done &
 else
-  echo "pw-cat not found: video only. The CleanCam microphone needs PipeWire." >&2
+  echo "pw-cli not found: video only. The CleanCam microphone needs PipeWire." >&2
 fi
 
 echo "Writing the CleanCam stream from $HOST:$PORT to $VIDEO and its sound to the CleanCam microphone. Ctrl-C to stop."
