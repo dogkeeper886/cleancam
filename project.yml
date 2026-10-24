@@ -30,4 +30,5 @@ targets:
           - UIInterfaceOrientationLandscapeRight
           - UIInterfaceOrientationLandscapeLeft
         NSCameraUsageDescription: CleanCam sends the camera picture to your computer.
-        NSLocalNetworkUsageDescription: CleanCam sends the camera picture to your computer.
+        NSMicrophoneUsageDescription: CleanCam sends the microphone's sound to your computer.
+        NSLocalNetworkUsageDescription: CleanCam sends the camera picture and sound to your computer.

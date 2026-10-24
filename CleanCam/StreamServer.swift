@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// TCP server that sends the H.264 stream to every connected client.
+/// TCP server that sends a stream, the H.264 video or the PCM audio, to every connected client.
 /// Over USB the PC reaches it through usbmuxd (`iproxy`); over WiFi a PC can connect to the phone's IP directly.
 final class StreamServer {
     var onClientsChanged: ((Int) -> Void)?
@@ -13,7 +13,8 @@ final class StreamServer {
         init(connection: NWConnection) { self.connection = connection }
     }
 
-    /// About one second of video. A client further behind skips ahead to the next keyframe instead of lagging more.
+    /// About one second of video or half a second of audio.
+    /// A client further behind skips ahead to the next keyframe instead of lagging more.
     private static let maxPendingSends = 30
 
     private let port: NWEndpoint.Port
