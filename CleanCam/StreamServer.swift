@@ -1,10 +1,13 @@
 import Foundation
 import Network
 
-/// TCP server that sends a stream, the H.264 video or the PCM audio, to every connected client.
+/// TCP server that sends a stream, the H.264 video or the PCM audio, to every connected client,
+/// or receives one, the PC's speaker audio.
 /// Over USB the PC reaches it through usbmuxd (`iproxy`); over WiFi a PC can connect to the phone's IP directly.
 final class StreamServer {
     var onClientsChanged: ((Int) -> Void)?
+    /// When set, called on the server's queue with whatever a client sends.
+    var onReceive: ((Data) -> Void)?
 
     private final class Client {
         let connection: NWConnection
@@ -99,6 +102,19 @@ final class StreamServer {
         }
         connection.start(queue: queue)
         clientsChanged()
+        if onReceive != nil { receive(from: client, id: id) }
+    }
+
+    private func receive(from client: Client, id: ObjectIdentifier) {
+        client.connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty { self.onReceive?(data) }
+            if isComplete || error != nil {
+                self.remove(id)
+            } else {
+                self.receive(from: client, id: id)
+            }
+        }
     }
 
     private func remove(_ id: ObjectIdentifier) {

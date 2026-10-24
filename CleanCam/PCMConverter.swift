@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Turns microphone sample buffers into the raw audio the PC reads: 48 kHz, mono, 16-bit little-endian PCM.
+/// Turns microphone buffers into the raw audio the PC reads: 48 kHz, mono, 16-bit little-endian PCM.
 final class PCMConverter {
     static let sampleRate = 48_000.0
 
@@ -8,15 +8,10 @@ final class PCMConverter {
         commonFormat: .pcmFormatInt16, sampleRate: PCMConverter.sampleRate, channels: 1, interleaved: true)!
     private var converter: AVAudioConverter?
 
-    func convert(_ sampleBuffer: CMSampleBuffer) -> Data? {
-        guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(description),
-              let inputFormat = AVAudioFormat(streamDescription: streamDescription) else { return nil }
-        let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frames > 0, let input = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frames) else { return nil }
-        input.frameLength = frames
-        guard CMSampleBufferCopyPCMDataIntoAudioBufferList(
-            sampleBuffer, at: 0, frameCount: Int32(frames), into: input.mutableAudioBufferList) == noErr else { return nil }
+    func convert(_ input: AVAudioPCMBuffer) -> Data? {
+        let inputFormat = input.format
+        let frames = input.frameLength
+        guard frames > 0 else { return nil }
 
         // The microphone's format can change, for example when a headset is plugged in.
         if converter?.inputFormat != inputFormat {
