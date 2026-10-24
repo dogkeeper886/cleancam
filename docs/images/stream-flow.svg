@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="952" height="352" viewBox="0 0 952 352">
+  <!-- Source of stream-flow.png: rsvg-convert -z 2 -o stream-flow.png stream-flow.svg -->
+  <style>
+    text { font-family: 'Liberation Sans', Arial, Helvetica, sans-serif; }
+    .bg { fill: #ffffff; stroke: #e5e7eb; }
+    .lane-phone { fill: #eef2ff; stroke: #c7d2fe; }
+    .lane-pc { fill: #ecfdf5; stroke: #a7f3d0; }
+    .lane-label { font-size: 13px; font-weight: 700; }
+    .phone { fill: #3730a3; }
+    .pc { fill: #065f46; }
+    .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; }
+    .key { stroke: #4f46e5; stroke-width: 2.5; }
+    .title { font-size: 15px; font-weight: 700; fill: #111827; }
+    .sub { font-size: 12.5px; fill: #4b5563; }
+    .edge { fill: none; stroke: #334155; stroke-width: 1.6; }
+    .alt { fill: none; stroke: #64748b; stroke-width: 1.6; stroke-dasharray: 6 4; }
+    .label { font-size: 12.5px; font-weight: 700; fill: #334155; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-alt" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="951" height="351" rx="14"/>
+
+  <!-- Lanes -->
+  <rect class="lane-phone" x="16" y="16" width="920" height="120" rx="10"/>
+  <text class="lane-label phone" x="32" y="38">iPhone</text>
+  <rect class="lane-pc" x="16" y="216" width="920" height="120" rx="10"/>
+  <text class="lane-label pc" x="32" y="238">Linux PC</text>
+
+  <!-- iPhone, left to right -->
+  <rect class="box" x="36" y="52" width="196" height="64" rx="8"/>
+  <text class="title" x="134" y="80" text-anchor="middle">Back camera</text>
+  <text class="sub" x="134" y="99" text-anchor="middle">raw frames, no overlays</text>
+
+  <rect class="box key" x="264" y="52" width="424" height="64" rx="8"/>
+  <text class="title" x="476" y="80" text-anchor="middle">CleanCam app</text>
+  <text class="sub" x="476" y="99" text-anchor="middle">H.264 · 1920x1080 · 30 fps</text>
+
+  <rect class="box" x="720" y="52" width="196" height="64" rx="8"/>
+  <text class="title" x="818" y="80" text-anchor="middle">Stream server</text>
+  <text class="sub" x="818" y="99" text-anchor="middle">TCP port 5000</text>
+
+  <path class="edge" d="M232,84 H264" marker-end="url(#arrow)"/>
+  <path class="edge" d="M688,84 H720" marker-end="url(#arrow)"/>
+
+  <!-- Links between the devices -->
+  <path class="edge" d="M818,116 V252" marker-end="url(#arrow)"/>
+  <text class="label" x="830" y="188">USB cable</text>
+  <path class="alt" d="M748,116 V176 H590 V252" marker-end="url(#arrow-alt)"/>
+  <text class="label" x="580" y="204" text-anchor="end">WiFi, by the iPhone's IP</text>
+
+  <!-- Linux PC, right to left -->
+  <rect class="box" x="720" y="252" width="196" height="64" rx="8"/>
+  <text class="title" x="818" y="280" text-anchor="middle">usbmuxd + iproxy</text>
+  <text class="sub" x="818" y="299" text-anchor="middle">port 5000 over USB</text>
+
+  <rect class="box" x="492" y="252" width="196" height="64" rx="8"/>
+  <text class="title" x="590" y="280" text-anchor="middle">ffmpeg</text>
+  <text class="sub" x="590" y="299" text-anchor="middle">decodes the H.264</text>
+
+  <rect class="box" x="264" y="252" width="196" height="64" rx="8"/>
+  <text class="title" x="362" y="280" text-anchor="middle">v4l2loopback</text>
+  <text class="sub" x="362" y="299" text-anchor="middle">/dev/video10 “CleanCam”</text>
+
+  <rect class="box" x="36" y="252" width="196" height="64" rx="8"/>
+  <text class="title" x="134" y="280" text-anchor="middle">Zoom · OBS · browser</text>
+  <text class="sub" x="134" y="299" text-anchor="middle">pick the “CleanCam” camera</text>
+
+  <path class="edge" d="M720,284 H688" marker-end="url(#arrow)"/>
+  <path class="edge" d="M492,284 H460" marker-end="url(#arrow)"/>
+  <path class="edge" d="M264,284 H232" marker-end="url(#arrow)"/>
+</svg>
