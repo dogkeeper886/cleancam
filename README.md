@@ -42,7 +42,7 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
    ```
 6. **Trust it on the iPhone.** On iOS 16 or later, turn on Developer Mode in Settings → Privacy & Security first. Then trust your Apple ID under Settings → General → VPN & Device Management.
 
-The app needs **iOS 15 or later**. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
+The app needs **iOS 15 or later**; an iPhone 5 or 5c on iOS 10 runs [CleanCamLegacy](#iphone-5-and-5c) instead. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
 
 ## Receive on the PC
 
@@ -89,13 +89,37 @@ A free Apple ID signs CleanCam for 7 days, counted from step 5. When the signing
   ```
 - **Sign for a year** with the paid Apple Developer Program ($99 a year), instead of renewing every week.
 
+## iPhone 5 and 5c
+
+The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls, ports and stream formats, so the receiver stays as it is, and it builds on the Linux PC.
+
+![On GitHub releases, pinned downloads of the iOS 11.4 SDK and the theos toolchain feed the first build. On the Linux PC: 1, build the IPA with tools/build-legacy.sh in a container. On the iPhone 5 on iOS 10: 2, connect only this iPhone, plugged in directly, and tap Trust. On the PC: 3, sign and install CleanCam-legacy.ipa with plumesign. On the iPhone: 4, trust the developer under Device Management, with no Developer Mode. Then open CleanCam, which runs for 7 days.](docs/images/legacy-steps.png)
+
+1. **Build the IPA.** `tools/build-legacy.sh` downloads the iOS 11.4 SDK and the theos project's iOS toolchain on its first run, checks them against pinned checksums, compiles in podman or docker, and writes `build/CleanCam-legacy.ipa`:
+   ```sh
+   tools/build-legacy.sh
+   ```
+2. **Connect only this iPhone**, straight into the PC. Unlock it and tap "Trust This Computer". With one phone plugged in, the next step and the receiver both pick it.
+3. **Sign and install** with the Apple ID from step 4 of [Install the app](#install-the-app):
+   ```sh
+   tools/plumesign.sh sign --package build/CleanCam-legacy.ipa --apple-id --register-and-install --udid "$(idevice_id -l | head -1)"
+   ```
+4. **Trust the developer** under Settings → General → Device Management. iOS 10 has no Developer Mode.
+
+Then open CleanCam, allow the camera and microphone prompts, and [receive on the PC](#receive-on-the-pc) as with the main app. iOS 10 asks no local network question.
+
+- **Renew** every 7 days with step 3 and the same IPA.
+- **iPhone 5s, 6 and 6 Plus** run neither app: they stop at iOS 12, which no longer runs 32-bit apps, and the main app needs iOS 15.
+
 ## Change the app
 
 Change the app from any computer: edit the Swift code in `CleanCam/`, then push. The Build workflow generates the Xcode project from `project.yml` with XcodeGen and compiles it on a GitHub macOS runner. Keep the code within the `deploymentTarget` in `project.yml` (iOS 15), and guard newer APIs with `if #available`.
 
+CleanCamLegacy changes on the PC instead: edit the Objective-C code in `CleanCamLegacy/`, then repeat steps 1 and 3 of [iPhone 5 and 5c](#iphone-5-and-5c). Keep it within iOS 10's APIs; clang warns about newer ones. A change to the Swift app reaches the iPhone 5 only once it is ported to `CleanCamLegacy/` too.
+
 ## Setup details and troubleshooting
 
-`.claude/skills/developing-cleancam/` holds the real-world setup as a Claude Code skill:
+`.claude/skills/developing-cleancam/` holds the real-world setup as a Claude Code skill, and `.claude/skills/developing-cleancam-legacy/` the same for the iPhone 5. Both use these reference files:
 
 - **[`host-setup.md`](.claude/skills/developing-cleancam/reference/host-setup.md):** packages per distribution, how to pick and verify a plumesign release, and the extra steps RHEL 9 family systems need.
-- **[`troubleshooting.md`](.claude/skills/developing-cleancam/reference/troubleshooting.md):** symptoms, causes and fixes, from USB hubs and pairing errors to Apple sign-in errors and a missing camera.
+- **[`troubleshooting.md`](.claude/skills/developing-cleancam/reference/troubleshooting.md):** symptoms, causes and fixes, from USB hubs and pairing errors to Apple sign-in errors, iPhone 5 build errors and a missing camera.

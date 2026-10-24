@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="952" height="548" viewBox="0 0 952 548">
+  <!-- Source of legacy-steps.png: rsvg-convert -z 2 -o legacy-steps.png legacy-steps.svg -->
+  <style>
+    text { font-family: 'Liberation Sans', Arial, Helvetica, sans-serif; }
+    .bg { fill: #ffffff; stroke: #e5e7eb; }
+    .lane-gh { fill: #f3f4f6; stroke: #d1d5db; }
+    .lane-pc { fill: #ecfdf5; stroke: #a7f3d0; }
+    .lane-phone { fill: #eef2ff; stroke: #c7d2fe; }
+    .lane-label { font-size: 13px; font-weight: 700; }
+    .gh { fill: #374151; }
+    .pc { fill: #065f46; }
+    .phone { fill: #3730a3; }
+    .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; }
+    .key { stroke: #4f46e5; stroke-width: 2.5; }
+    .badge { fill: #4f46e5; }
+    .num { font-size: 13px; font-weight: 700; fill: #ffffff; }
+    .title { font-size: 15px; font-weight: 700; fill: #111827; }
+    .sub { font-size: 12.5px; fill: #4b5563; }
+    .edge { fill: none; stroke: #334155; stroke-width: 1.6; }
+    .label { font-size: 12.5px; font-weight: 700; fill: #334155; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="951" height="547" rx="14"/>
+
+  <!-- Lanes -->
+  <rect class="lane-gh" x="16" y="16" width="296" height="516" rx="10"/>
+  <text class="lane-label gh" x="164" y="42" text-anchor="middle">GitHub releases</text>
+  <rect class="lane-pc" x="328" y="16" width="296" height="516" rx="10"/>
+  <text class="lane-label pc" x="476" y="42" text-anchor="middle">Linux PC</text>
+  <rect class="lane-phone" x="640" y="16" width="296" height="516" rx="10"/>
+  <text class="lane-label phone" x="788" y="42" text-anchor="middle">iPhone 5 · iOS 10</text>
+
+  <!-- Downloads, automatic -->
+  <rect class="box" x="28" y="64" width="272" height="52" rx="8"/>
+  <text class="title" x="164" y="86" text-anchor="middle">Pinned downloads</text>
+  <text class="sub" x="164" y="104" text-anchor="middle">iOS 11.4 SDK, theos toolchain</text>
+
+  <!-- 1 -->
+  <rect class="box" x="340" y="144" width="272" height="52" rx="8"/>
+  <circle class="badge" cx="354" cy="144" r="12"/>
+  <text class="num" x="354" y="148.5" text-anchor="middle">1</text>
+  <text class="title" x="476" y="166" text-anchor="middle">Build the IPA</text>
+  <text class="sub" x="476" y="184" text-anchor="middle">tools/build-legacy.sh, in a container</text>
+
+  <!-- 2 -->
+  <rect class="box" x="652" y="224" width="272" height="52" rx="8"/>
+  <circle class="badge" cx="666" cy="224" r="12"/>
+  <text class="num" x="666" y="228.5" text-anchor="middle">2</text>
+  <text class="title" x="788" y="246" text-anchor="middle">Connect only this iPhone</text>
+  <text class="sub" x="788" y="264" text-anchor="middle">plug in directly, tap Trust</text>
+
+  <!-- 3 -->
+  <rect class="box" x="340" y="304" width="272" height="52" rx="8"/>
+  <circle class="badge" cx="354" cy="304" r="12"/>
+  <text class="num" x="354" y="308.5" text-anchor="middle">3</text>
+  <text class="title" x="476" y="326" text-anchor="middle">Sign and install</text>
+  <text class="sub" x="476" y="344" text-anchor="middle">plumesign, CleanCam-legacy.ipa</text>
+
+  <!-- 4 -->
+  <rect class="box" x="652" y="384" width="272" height="52" rx="8"/>
+  <circle class="badge" cx="666" cy="384" r="12"/>
+  <text class="num" x="666" y="388.5" text-anchor="middle">4</text>
+  <text class="title" x="788" y="406" text-anchor="middle">Trust the developer</text>
+  <text class="sub" x="788" y="424" text-anchor="middle">Device Management, no Developer Mode</text>
+
+  <!-- Done -->
+  <rect class="box key" x="652" y="464" width="272" height="52" rx="26"/>
+  <text class="title" x="788" y="486" text-anchor="middle">Open CleanCam</text>
+  <text class="sub" x="788" y="504" text-anchor="middle">runs for 7 days, then renew</text>
+
+  <path class="edge" d="M300,90 H476 V144" marker-end="url(#arrow)"/>
+  <text class="label" x="388" y="82" text-anchor="middle">first build only</text>
+  <path class="edge" d="M612,170 H788 V224" marker-end="url(#arrow)"/>
+  <path class="edge" d="M652,250 H476 V304" marker-end="url(#arrow)"/>
+  <path class="edge" d="M612,330 H788 V384" marker-end="url(#arrow)"/>
+  <path class="edge" d="M788,436 V464" marker-end="url(#arrow)"/>
+</svg>

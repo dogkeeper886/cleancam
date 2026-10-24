@@ -14,7 +14,8 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
 | PipeWire as the sound server, with `pw-cli` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module | `wpctl status` lists "CleanCam" while the receiver runs |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
-| podman or docker | running plumesign when the host's glibc is too old for it | `command -v podman docker` |
+| podman or docker | running plumesign when the host's glibc is too old for it, and building CleanCamLegacy | `command -v podman docker` |
+| curl and zip | downloading the iOS 11.4 SDK and toolchain, and packing `build/CleanCam-legacy.ipa` | `command -v curl zip` |
 
 Install them with the distribution's packages:
 
