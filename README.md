@@ -44,13 +44,13 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
 
 The app needs **iOS 15 or later**; an iPhone 5 or 5c on iOS 10 runs [CleanCamLegacy](#iphone-5-and-5c) instead. A free Apple ID signs it for **7 days**; [Renew after 7 days](#renew-after-7-days) covers what happens then.
 
-These phones were tested by hand, over the USB cable:
+These phones were tested by hand over the USB cable, with the video, the microphone and the speaker in a video call:
 
-| Phone | iOS | App | Tested |
-|---|---|---|---|
-| iPhone 5 | 10.3.4 | CleanCamLegacy | 1920x1080 video at 30 fps held sideways, the microphone at 48 kHz, and the microphone and speaker in a video call |
-| iPhone 7 | 15.8.8 | CleanCam | video, microphone and speaker in Zoom |
-| iPhone X | 16.7.16 | CleanCam | install with Developer Mode, and streaming to the PC |
+| Phone | iOS | App |
+|---|---|---|
+| iPhone 5 | 10.3.4 | CleanCamLegacy |
+| iPhone 7 | 15.8.8 | CleanCam |
+| iPhone X | 16.7.16 | CleanCam |
 
 The repo has no automated tests; CI only builds the main app. On the iPhone 5, the frame rate held upright and the Lock, zoom and Screen off buttons are still untested.
 
