@@ -21,7 +21,9 @@ Find the symptom, apply the fix, then resume at the step that failed.
 | The app won't open: "Untrusted Developer" | First install from this Apple ID | Settings → General → VPN & Device Management → Trust |
 | The app stopped opening after about a week | Free Apple ID signing lasts 7 days | Reinstall with step 13 of `SKILL.md` |
 | The video app lists no "CleanCam" camera | `exclusive_caps=1` lists the device only while ffmpeg writes to it | Start the receiver and the app, then restart the video app |
-| The video app lists no "CleanCam" microphone | The receiver is not running, or it printed `pw-cli not found` | Start the receiver; install PipeWire's tools from `host-setup.md` |
+| The video app lists no "CleanCam" microphone or speaker | The receiver is not running, or it printed `pw-cli not found` | Start the receiver; install PipeWire's tools from `host-setup.md` |
+| The iPhone plays no sound | The video app's speaker is not "CleanCam", or the phone's volume is down | Pick "CleanCam" as the speaker; raise the volume with the phone's buttons while CleanCam is open |
+| The others hear themselves | The video app plays the call on the PC's speakers, whose sound the iPhone cannot cancel | Pick "CleanCam" as the speaker too, or wear headphones |
 | The "CleanCam" microphone stays silent and the app shows no Mute button | The user denied the microphone prompt | Ask the user to allow it in Settings → CleanCam → Microphone, then reopen the app |
 | The picture looks left-right flipped in the video app | The video app mirrors the user's own preview; the other side sees it the right way round | Turn off the app's mirroring, in Zoom Settings → Video → "Mirror my video" |
 | The phone stays on "Waiting for PC on port …" | The receiver is not running, or the iPhone is not paired | Start `receiver/cleancam-receive.sh`; check `idevicepair validate` |

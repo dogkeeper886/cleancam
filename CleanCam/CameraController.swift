@@ -4,9 +4,11 @@ import UIKit
 
 /// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to `port`,
 /// and the microphone as raw PCM to whoever connects to `audioPort`.
+/// Plays the raw PCM a PC sends to `speakerPort` on the loudspeaker.
 final class CameraController: NSObject, ObservableObject {
     static let port: UInt16 = 5000
     static let audioPort: UInt16 = 5001
+    static let speakerPort: UInt16 = 5002
 
     @Published private(set) var status = "Starting…"
     @Published private(set) var zoom = 1.0
@@ -22,18 +24,16 @@ final class CameraController: NSObject, ObservableObject {
 
     private let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
-    private let audioOutput = AVCaptureAudioDataOutput()
     private let sessionQueue = DispatchQueue(label: "cleancam.session")
     private let videoQueue = DispatchQueue(label: "cleancam.video")
-    private let audioQueue = DispatchQueue(label: "cleancam.audio")
     private let encoder = H264Encoder()
-    private let pcmConverter = PCMConverter()
+    private let callAudio = CallAudio()
     private let server = StreamServer(port: CameraController.port)
     private let audioServer = StreamServer(port: CameraController.audioPort)
+    private let speakerServer = StreamServer(port: CameraController.speakerPort)
     // Used on sessionQueue only.
     private var device: AVCaptureDevice?
     private var videoOrientation = AVCaptureVideoOrientation.landscapeRight
-    private var micEnabled = true
 
     override init() {
         super.init()
@@ -41,6 +41,14 @@ final class CameraController: NSObject, ObservableObject {
         previewLayer.videoGravity = .resizeAspect
         encoder.onEncoded = { [server] data, isKeyframe in
             server.broadcast(data, isKeyframe: isKeyframe)
+        }
+        callAudio.onMicPCM = { [audioServer] pcm in
+            guard audioServer.hasClients else { return }
+            // Raw audio has no keyframes: a client can start at any chunk.
+            audioServer.broadcast(pcm, isKeyframe: true)
+        }
+        speakerServer.onReceive = { [callAudio] data in
+            callAudio.play(data)
         }
         server.onClientsChanged = { [weak self] count in
             guard let self else { return }
@@ -55,13 +63,17 @@ final class CameraController: NSObject, ObservableObject {
     func start() {
         server.start()
         audioServer.start()
+        speakerServer.start()
         AVCaptureDevice.requestAccess(for: .video) { granted in
             guard granted else {
                 DispatchQueue.main.async { self.status = "Allow camera access in Settings" }
                 return
             }
-            // Ask for the microphone too; the camera streams whatever the answer.
-            AVCaptureDevice.requestAccess(for: .audio) { _ in
+            // Ask for the microphone too; the camera and the loudspeaker work whatever the answer.
+            AVCaptureDevice.requestAccess(for: .audio) { micAllowed in
+                self.callAudio.start(micAllowed: micAllowed) { micRunning in
+                    DispatchQueue.main.async { self.hasMic = micRunning }
+                }
                 self.sessionQueue.async {
                     if self.device == nil { self.configure() }
                     self.session.startRunning()
@@ -73,6 +85,8 @@ final class CameraController: NSObject, ObservableObject {
     func stop() {
         server.stop()
         audioServer.stop()
+        speakerServer.stop()
+        callAudio.stop()
         sessionQueue.async { self.session.stopRunning() }
         videoQueue.async { self.encoder.reset() }
     }
@@ -120,11 +134,7 @@ final class CameraController: NSObject, ObservableObject {
     /// Stops or resumes sending the microphone; the PC's microphone stays and goes silent.
     func toggleMic() {
         isMicOn.toggle()
-        let on = isMicOn
-        sessionQueue.async {
-            self.micEnabled = on
-            self.audioOutput.connection(with: .audio)?.isEnabled = on
-        }
+        callAudio.setMicEnabled(isMicOn)
     }
 
     private func configure() {
@@ -144,19 +154,6 @@ final class CameraController: NSObject, ObservableObject {
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
-        var micAdded = false
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
-           let mic = AVCaptureDevice.default(for: .audio),
-           let micInput = try? AVCaptureDeviceInput(device: mic),
-           session.canAddInput(micInput) {
-            session.addInput(micInput)
-            audioOutput.setSampleBufferDelegate(self, queue: audioQueue)
-            if session.canAddOutput(audioOutput) {
-                session.addOutput(audioOutput)
-                audioOutput.connection(with: .audio)?.isEnabled = micEnabled
-                micAdded = true
-            }
-        }
         session.commitConfiguration()
         self.device = device
         applyOrientation()
@@ -170,7 +167,6 @@ final class CameraController: NSObject, ObservableObject {
             self.zoomRange = range
             self.zoom = wideZoom
             self.zoomDisplayScale = wideZoom
-            self.hasMic = micAdded
         }
     }
 
@@ -196,14 +192,8 @@ final class CameraController: NSObject, ObservableObject {
     }
 }
 
-extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
+extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if output === audioOutput {
-            guard audioServer.hasClients, let pcm = pcmConverter.convert(sampleBuffer) else { return }
-            // Raw audio has no keyframes: a client can start at any chunk.
-            audioServer.broadcast(pcm, isKeyframe: true)
-            return
-        }
         // Skip encoding while nobody is watching, to save battery.
         guard server.hasClients else { return }
         encoder.encode(sampleBuffer)

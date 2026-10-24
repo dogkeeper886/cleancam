@@ -2,17 +2,19 @@
 
 An iPhone's camera beats most webcams. But the Camera app draws a grid, a timer and buttons over the picture, and an HDMI adapter mirrors all of them. A video call then shows the phone's controls on top of the picture.
 
-CleanCam sends only the camera's picture, with the iPhone's microphone, over the USB cable to a Linux PC. There they show up as a webcam and a microphone, both named "CleanCam", in Zoom, OBS or a browser.
+CleanCam sends only the camera's picture and the iPhone's microphone over the USB cable to a Linux PC, and plays the call's sound on the iPhone's loudspeaker. The PC shows them as a webcam, a microphone and a speaker, all named "CleanCam", in Zoom, OBS or a browser.
 
 ## The CleanCam app
 
-CleanCam streams the back camera's own frames instead of the screen, so the PC receives the picture without the phone's overlays. The microphone travels beside it on a port of its own.
+CleanCam streams the back camera's own frames instead of the screen, so the PC receives the picture without the phone's overlays. The microphone and the loudspeaker each use a port of their own.
 
-![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080 and 30 fps, converts the audio to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001. Over the USB cable, usbmuxd and iproxy carry both ports to the Linux PC; over WiFi, the PC reaches the iPhone's IP directly. One ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the audio into a PipeWire pipe-tunnel source, the CleanCam microphone. Zoom, OBS or a browser picks CleanCam as the camera and the microphone.](docs/images/stream-flow.png)
+![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080 and 30 fps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire pipe-tunnel source, the CleanCam microphone; and cat passes what apps play to the CleanCam speaker, a pipe-tunnel sink, back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
 
 - **Preview:** the phone shows the picture with a zoom slider, which switches lenses on phones with more than one.
 - **Lock:** holds focus, exposure and white balance, so the picture stays steady.
 - **Mute:** stops sending the microphone; the PC's CleanCam microphone goes silent. The button appears once the microphone is allowed.
+- **Speaker:** the loudspeaker plays whatever the video app sends to the CleanCam speaker, at the loudness the phone's volume buttons set.
+- **Echo cancellation:** the iPhone removes its loudspeaker's sound from the microphone, as in a phone call, so the others hear only you. Your voice sounds like a phone call too.
 - **Screen off:** blacks out the phone at its lowest brightness while the stream keeps running. Tap the screen to bring it back.
 - **Orientation:** the stream follows the phone upright or sideways. Upright frames get black bars, so the webcam stays 1920x1080 and the video app keeps it.
 - **Battery:** the app encodes only while a PC is connected.
@@ -44,27 +46,29 @@ The app needs **iOS 15 or later**. A free Apple ID signs it for **7 days**; [Ren
 
 ## Receive on the PC
 
-`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam and microphone. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone also needs PipeWire as the sound server, with `pw-cli`; without it, the receiver runs video only.
+`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server, with `pw-cli`; without it, the receiver runs video only.
 
-![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera and the microphone in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
+![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera, the microphone and the speaker in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
 
 ```sh
 receiver/cleancam-receive.sh            # iPhone on USB
 receiver/cleancam-receive.sh 192.0.2.7  # iPhone on the same WiFi, by its IP
 ```
 
-Open CleanCam on the iPhone and allow the camera, microphone and local network prompts. Its status changes to "Streaming to PC". Then pick "CleanCam" as the camera and the microphone in the video app, or watch the picture with `ffplay /dev/video10`.
+Open CleanCam on the iPhone and allow the camera, microphone and local network prompts. Its status changes to "Streaming to PC". Then pick "CleanCam" as the camera, the microphone and the speaker in the video app, or watch the picture with `ffplay /dev/video10`.
 
 - **Restart a video app** that opened before the stream; only then does it find the camera.
+- **Pick the CleanCam speaker with the CleanCam microphone.** The iPhone cancels only its own loudspeaker's echo; to hear the call on the PC instead, wear headphones.
 - **Keep CleanCam open.** iOS stops the camera when the phone locks or the app leaves the screen. Use Screen off instead.
 - **Mirrored preview:** Zoom mirrors your own preview, so the picture looks flipped to you but reaches the others the right way round. Turn off Settings → Video → "Mirror my video" to see what they see.
 
-The receiver reads three settings from the environment:
+The receiver reads four settings from the environment:
 
 | Variable | Changes | Default |
 |---|---|---|
 | `PORT` | the TCP port for video; it must match the app's | `5000` |
 | `AUDIO_PORT` | the TCP port for the microphone; it must match the app's | `5001` |
+| `SPEAKER_PORT` | the TCP port for the speaker; it must match the app's | `5002` |
 | `VIDEO_NR` | the webcam device number, `/dev/video<N>` | `10` |
 
 ## Renew after 7 days

@@ -25,11 +25,11 @@ Set up CleanCam on a real iPhone and Linux PC:
 14. On iOS 16 or later, ask the user to turn on Developer Mode in Settings → Privacy & Security and restart the phone.
 15. On a first install, ask the user to trust the developer in Settings → General → VPN & Device Management.
 16. Ask the user to open CleanCam and allow the camera, microphone and local network prompts.
-17. Start `receiver/cleancam-receive.sh`, which turns the USB stream into the "CleanCam" webcam and microphone.
+17. Start `receiver/cleancam-receive.sh`, which turns the USB stream into the "CleanCam" webcam, microphone and speaker.
 18. For WiFi instead of the cable, start it with the iPhone's IP: `receiver/cleancam-receive.sh <iPhone IP>`.
 19. Confirm the webcam receives video with `ffprobe -hide_banner -loglevel error -f v4l2 -show_entries stream=width,height -of compact "/dev/video${VIDEO_NR:-10}"`.
-20. Confirm the microphone exists with `wpctl status | grep CleanCam`.
-21. Ask the user to pick "CleanCam" as the camera and the microphone in the video app, restarting the app when it opened before the stream.
+20. Confirm the microphone and the speaker exist with `wpctl status | grep CleanCam`.
+21. Ask the user to pick "CleanCam" as the camera, the microphone and the speaker in the video app, restarting the app when it opened before the stream.
 22. Tell the user to keep CleanCam open, since iOS stops the camera when the screen locks or the app leaves the foreground; its Screen off button only dims the screen.
 23. Renew the 7-day free signing by repeating step 13 when the app stops opening.
 24. Fix a failed step by its symptom in `reference/troubleshooting.md`.
