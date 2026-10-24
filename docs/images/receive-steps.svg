@@ -49,7 +49,7 @@
   <circle class="badge" cx="506" cy="252" r="12"/>
   <text class="num" x="506" y="256.5" text-anchor="middle">3</text>
   <text class="title" x="590" y="280" text-anchor="middle">Pick “CleanCam”</text>
-  <text class="sub" x="590" y="299" text-anchor="middle">as camera and microphone</text>
+  <text class="sub" x="590" y="299" text-anchor="middle">as camera, mic and speaker</text>
 
   <!-- 4 -->
   <rect class="box" x="720" y="52" width="196" height="64" rx="8"/>

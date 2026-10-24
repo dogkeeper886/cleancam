@@ -12,7 +12,7 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | `iproxy` (libusbmuxd) | forwarding the stream port over USB | `command -v iproxy` |
 | ffmpeg with H.264 decoding | decoding the stream | `ffmpeg -hide_banner -decoders \| grep -w h264` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
-| PipeWire as the sound server, with `pw-cli` | the "CleanCam" microphone, through PipeWire's pipe-tunnel module | `wpctl status` lists "CleanCam" while the receiver runs |
+| PipeWire as the sound server, with `pw-cli` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module | `wpctl status` lists "CleanCam" while the receiver runs |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
 | podman or docker | running plumesign when the host's glibc is too old for it | `command -v podman docker` |
 
