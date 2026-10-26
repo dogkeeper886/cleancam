@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var camera = CameraController()
     @Environment(\.scenePhase) private var scenePhase
     @State private var isScreenOff = false
+    @State private var isSettingsOpen = false
     @State private var savedBrightness: CGFloat = 0.5
 
     var body: some View {
@@ -24,6 +25,7 @@ struct ContentView: View {
         }
         .background(Color.black)
         .statusBarHidden()
+        .sheet(isPresented: $isSettingsOpen) { SettingsView(camera: camera) }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             camera.updateOrientation(UIDevice.current.orientation)
@@ -64,7 +66,7 @@ struct ContentView: View {
                         .frame(width: 44)
                 }
             }
-            // The buttons get their own row so all three fit an upright phone.
+            // The buttons get their own row so all four fit an upright phone.
             HStack(spacing: 12) {
                 Button(camera.isLocked ? "Unlock" : "Lock") { camera.toggleLock() }
                     .buttonStyle(.borderedProminent)
@@ -77,6 +79,10 @@ struct ContentView: View {
                 Button("Screen off") { setScreenOff(true) }
                     .buttonStyle(.borderedProminent)
                     .tint(.gray)
+                Button { isSettingsOpen = true } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.gray)
+                    .accessibilityLabel("Settings")
             }
         }
         .font(.footnote.monospacedDigit())
@@ -97,6 +103,43 @@ struct ContentView: View {
         }
         isScreenOff = off
         camera.setPreviewEnabled(!off)
+    }
+}
+
+/// Picks the preset. The camera switches as soon as one is picked, and the app keeps it for the next start.
+struct SettingsView: View {
+    @ObservedObject var camera: CameraController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    ForEach(Preset.allCases) { preset in
+                        Button { camera.setPreset(preset) } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(preset.name).foregroundColor(.primary)
+                                    Text(preset.summary).font(.footnote).foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                if camera.preset == preset {
+                                    Image(systemName: "checkmark").foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Preset")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .navigationViewStyle(.stack)
     }
 }
 

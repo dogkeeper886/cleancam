@@ -15,8 +15,6 @@ final class CameraController: NSObject, ObservableObject {
     /// The highest bitrate the debug port's `bitrate` command holds: far above what the encoder sends, and low enough
     /// that the encoder's rate math can't overflow.
     private static let maxPinnedBitRate = 100_000_000
-    /// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
-    static let frameRates = 20...30
     /// How long focus stays on a face that left the picture before it returns to the center, in seconds.
     private static let faceTimeout = 2.0
     /// How far a face moves, in the sensor's 0–1 coordinates, before focus and exposure follow it.
@@ -45,6 +43,7 @@ final class CameraController: NSObject, ObservableObject {
     /// The bitrate the encoder aims for, after it adapted to the link.
     @Published private(set) var bitRate = 0
     @Published private(set) var focusTarget = FocusTarget.center
+    @Published private(set) var preset = Preset.saved
 
     let previewLayer = AVCaptureVideoPreviewLayer()
 
@@ -63,6 +62,9 @@ final class CameraController: NSObject, ObservableObject {
     private var debugInput = Data()
     // Used on sessionQueue only.
     private var device: AVCaptureDevice?
+    private var activePreset = Preset.saved
+    /// The zoom the UI shows as "1x"; the zoom slider reaches 10 times it.
+    private var wideZoom = 1.0
     private var videoOrientation = AVCaptureVideoOrientation.landscapeRight
     private var isDeviceLocked = false
     private var target = FocusTarget.center
@@ -104,13 +106,20 @@ final class CameraController: NSObject, ObservableObject {
         }
         encoder.onEvent = { [weak self] event in self?.sendDebug(event) }
         debugServer.onReceive = { [weak self] data in self?.receiveDebug(data) }
+        // A new debug client learns the preset and the camera mode at once.
+        debugServer.onClientsChanged = { [weak self] count in
+            guard let self, count > 0 else { return }
+            self.sessionQueue.async {
+                if let device = self.device { self.reportMode(device) }
+            }
+        }
     }
 
-    /// What the auto settings chose, for the status line, such as "1080p · 24 fps · 8.0 Mbps · Face".
+    /// The preset and what the auto settings chose, for the status line, such as "Call · 1080p · 24 fps · 8.0 Mbps · Face".
     var details: String {
         guard let formatName else { return "" }
         let mbps = String(format: "%.1f", Double(bitRate) / 1_000_000)
-        return "\(formatName) · \(frameRate) fps · \(mbps) Mbps · \(focusTarget.rawValue)"
+        return "\(preset.name) · \(formatName) · \(frameRate) fps · \(mbps) Mbps · \(focusTarget.rawValue)"
     }
 
     func start() {
@@ -133,8 +142,8 @@ final class CameraController: NSObject, ObservableObject {
                     if self.device == nil { self.configure() }
                     self.session.startRunning()
                 }
-                // A session that falls back to the preset's mode can reset the frame rates as it starts.
-                self.withDeviceLock { Self.applyFrameRates(to: $0) }
+                // A session that falls back to the session preset's mode can reset the frame rates as it starts.
+                self.withDeviceLock { Self.applyFrameRates(self.activePreset.frameRates, to: $0) }
             }
         }
     }
@@ -220,6 +229,17 @@ final class CameraController: NSObject, ObservableObject {
         callAudio.setMicEnabled(isMicOn)
     }
 
+    /// Switches to `preset`'s camera mode and frame rates, and keeps it for the next start. Called on any queue.
+    func setPreset(_ preset: Preset) {
+        preset.save()
+        DispatchQueue.main.async { self.preset = preset }
+        sessionQueue.async {
+            guard preset != self.activePreset else { return }
+            self.activePreset = preset
+            self.applyPreset()
+        }
+    }
+
     private func configure() {
         // Virtual multi-lens cameras switch lenses as the zoom changes.
         let types: [AVCaptureDevice.DeviceType] = [
@@ -238,38 +258,82 @@ final class CameraController: NSObject, ObservableObject {
         videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
         addFaceDetection()
-        // Inside the session's configuration, so the session keeps this mode instead of the preset's.
+        // Inside the session's configuration, so the session keeps this mode instead of the session preset's.
         if (try? device.lockForConfiguration()) != nil {
-            if let format = Self.bestFormat(of: device) { device.activeFormat = format }
-            Self.applyFrameRates(to: device)
+            applyMode(to: device)
             if device.isSmoothAutoFocusSupported { device.isSmoothAutoFocusEnabled = true }
-            if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = true }
             device.unlockForConfiguration()
         }
         session.commitConfiguration()
         self.device = device
         applyOrientation()
-        // The encoder plans its bitrate and keyframes around the mode's top rate.
-        let frameDuration = device.activeVideoMinFrameDuration.seconds
-        if frameDuration > 0 {
-            let topRate = Int((1 / frameDuration).rounded())
-            videoQueue.async { self.encoder.setFrameRate(topRate) }
-        }
 
-        let size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-        let lossless = Double(device.activeFormat.videoZoomFactorUpscaleThreshold)
         let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
         let wideZoom = hasUltraWide ? (device.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 1) : 1
-        let range = Double(device.minAvailableVideoZoomFactor)...min(Double(device.maxAvailableVideoZoomFactor), wideZoom * 10)
+        self.wideZoom = wideZoom
+        modeChanged(device)
         withDeviceLock { $0.videoZoomFactor = CGFloat(wideZoom) }
 
+        DispatchQueue.main.async {
+            self.zoom = wideZoom
+            self.zoomDisplayScale = wideZoom
+        }
+    }
+
+    /// Called on sessionQueue when the preset changes. A new camera mode pauses the picture for a moment.
+    private func applyPreset() {
+        guard let device else { return }
+        session.beginConfiguration()
+        if (try? device.lockForConfiguration()) != nil {
+            applyMode(to: device)
+            device.unlockForConfiguration()
+        }
+        session.commitConfiguration()
+        let zoom = Double(device.videoZoomFactor)
+        DispatchQueue.main.async { self.zoom = zoom }
+        modeChanged(device)
+    }
+
+    /// Called on sessionQueue with the device locked, inside the session's configuration. Picks the camera mode for the
+    /// preset's top frame rate, keeping the zoom, and sets the preset's frame rates.
+    private func applyMode(to device: AVCaptureDevice) {
+        let rates = activePreset.frameRates
+        if let format = Self.bestFormat(of: device, reaching: rates.upperBound), format != device.activeFormat {
+            let zoom = device.videoZoomFactor
+            device.activeFormat = format
+            device.videoZoomFactor = min(zoom, device.maxAvailableVideoZoomFactor)
+        }
+        Self.applyFrameRates(rates, to: device)
+        if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = true }
+    }
+
+    /// Called on sessionQueue once the camera mode or its frame rates changed. The encoder plans its bitrate and keyframes
+    /// around the mode's top rate, and the status line, the zoom slider and the debug port follow the mode.
+    private func modeChanged(_ device: AVCaptureDevice) {
+        let topRate = Self.frameRate(of: device.activeVideoMinFrameDuration)
+        if topRate > 0 { videoQueue.async { self.encoder.setFrameRate(topRate) } }
+        let size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        let lossless = Double(device.activeFormat.videoZoomFactorUpscaleThreshold)
+        let range = Double(device.minAvailableVideoZoomFactor)...min(Double(device.maxAvailableVideoZoomFactor), wideZoom * 10)
         DispatchQueue.main.async {
             self.formatName = "\(size.height)p"
             self.losslessZoom = lossless
             self.zoomRange = range
-            self.zoom = wideZoom
-            self.zoomDisplayScale = wideZoom
         }
+        reportMode(device)
+    }
+
+    /// Called on sessionQueue. Tells the debug port the preset, the camera mode, and the frame rates auto exposure
+    /// moves between.
+    private func reportMode(_ device: AVCaptureDevice) {
+        let format = device.activeFormat
+        let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        sendDebug([
+            "event": "mode", "preset": activePreset.rawValue, "width": Int(size.width), "height": Int(size.height),
+            "fps": [Self.frameRate(of: device.activeVideoMaxFrameDuration), Self.frameRate(of: device.activeVideoMinFrameDuration)],
+            "modeTopFps": Self.topFrameRate(of: format), "binned": format.isVideoBinned, "hdr": format.isVideoHDRSupported,
+            "losslessZoom": Double(format.videoZoomFactorUpscaleThreshold),
+        ])
     }
 
     /// Called on sessionQueue inside the session's configuration. Faces arrive in `metadataOutput(_:didOutput:from:)`.
@@ -281,18 +345,18 @@ final class CameraController: NSObject, ObservableObject {
         metadataOutput.setMetadataObjectsDelegate(self, queue: sessionQueue)
     }
 
-    /// The 1920x1080 mode that reaches the top frame rate with the best picture: unbinned first, then with video HDR,
-    /// then the most zoom before upscaling, then the widest view, then the lowest top rate, the mode made for that rate.
-    private static func bestFormat(of device: AVCaptureDevice) -> AVCaptureDevice.Format? {
-        device.formats
-            .filter { format in
-                let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                return size.width == 1920 && size.height == 1080
-                    // Video-range YUV, the usual video format; a full-range twin of a mode would shift the stream's colors.
-                    && CMFormatDescriptionGetMediaSubType(format.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                    && topFrameRate(of: format) >= Double(frameRates.upperBound)
-            }
-            .max { score($0) < score($1) }
+    /// The 1920x1080 mode that reaches `rate` with the best picture, or reaches 30 fps where none reaches `rate`:
+    /// unbinned first, then with video HDR, then the most zoom before upscaling, then the widest view, then the lowest
+    /// top rate, the mode made for that rate.
+    private static func bestFormat(of device: AVCaptureDevice, reaching rate: Int) -> AVCaptureDevice.Format? {
+        let modes = device.formats.filter { format in
+            let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return size.width == 1920 && size.height == 1080
+                // Video-range YUV, the usual video format; a full-range twin of a mode would shift the stream's colors.
+                && CMFormatDescriptionGetMediaSubType(format.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        }
+        let fast = modes.filter { topFrameRate(of: $0) >= Double(rate) }
+        return (fast.isEmpty ? modes.filter { topFrameRate(of: $0) >= 30 } : fast).max { score($0) < score($1) }
     }
 
     private static func score(_ format: AVCaptureDevice.Format) -> (Int, Int, Double, Double, Double) {
@@ -307,9 +371,9 @@ final class CameraController: NSObject, ObservableObject {
         format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
     }
 
-    /// Called with the device locked. Auto exposure holds the top of `frameRates` and slows toward the bottom in the dark;
+    /// Called with the device locked. Auto exposure holds the top of `rates` and slows toward the bottom in the dark;
     /// a rate the mode can't reach falls back to the mode's own limit.
-    private static func applyFrameRates(to device: AVCaptureDevice) {
+    private static func applyFrameRates(_ rates: ClosedRange<Int>, to device: AVCaptureDevice) {
         guard let range = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate })
         else { return }
         func duration(_ rate: Int) -> CMTime {
@@ -317,8 +381,13 @@ final class CameraController: NSObject, ObservableObject {
             if Double(rate) <= range.minFrameRate { return range.maxFrameDuration }
             return CMTime(value: 1, timescale: CMTimeScale(rate))
         }
-        device.activeVideoMinFrameDuration = duration(frameRates.upperBound)
-        device.activeVideoMaxFrameDuration = duration(frameRates.lowerBound)
+        device.activeVideoMinFrameDuration = duration(rates.upperBound)
+        device.activeVideoMaxFrameDuration = duration(rates.lowerBound)
+    }
+
+    /// The frames per second of a frame duration, such as 30 for 1/30 s.
+    private static func frameRate(of duration: CMTime) -> Int {
+        duration.seconds > 0 ? Int((1 / duration.seconds).rounded()) : 0
     }
 
     /// iOS 15.4 and later can steer focus and exposure to faces by itself.
@@ -418,11 +487,13 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     /// Runs a debug command: `bitrate N` holds the bitrate at N bits per second, `auto` hands it back to adaptation,
-    /// and `keyframe` asks for a keyframe.
+    /// `keyframe` asks for a keyframe, and `preset NAME` switches the preset, as the settings sheet does.
     private func runDebugCommand(_ line: String) {
         let words = line.split(separator: " ").map(String.init)
         var ok = true
         switch words.first {
+        case "preset"? where words.count == 2 && Preset(rawValue: words[1]) != nil:
+            setPreset(Preset(rawValue: words[1])!)
         case "bitrate"? where words.count == 2 && (1...Self.maxPinnedBitRate).contains(Int(words[1]) ?? 0):
             let rate = Int(words[1])!
             videoQueue.async { self.encoder.pin(bitRate: rate) }
