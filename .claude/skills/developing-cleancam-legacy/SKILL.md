@@ -18,7 +18,7 @@ Set up CleanCamLegacy on a 32-bit iPhone and Linux PC:
 6. Confirm the pairing and the phone's iOS with `idevicepair validate` and `ideviceinfo -k ProductVersion`.
 7. Ask the user to log in from their own terminal with `tools/plumesign.sh account login -u <their Apple ID>` when `tools/plumesign.sh account list` shows none, keeping the password and 2FA code out of the chat.
 8. Leave the login's output and any container log unread, since plumesign echoes the password.
-9. Fetch `CleanCam-legacy.ipa` from the latest release with `gh release download -R dogkeeper886/cleancam -p CleanCam-legacy.ipa -D build`, or build `build/CleanCam-legacy.ipa` with `tools/build-legacy.sh`, which downloads the pinned iOS 11.4 SDK and theos toolchain once and compiles in a container.
+9. Fetch `CleanCam-legacy.ipa` from the latest release with `gh release download -R dogkeeper886/cleancam -p CleanCam-legacy.ipa -D build --clobber`, or build `build/CleanCam-legacy.ipa` with `tools/build-legacy.sh`, which downloads the pinned iOS 11.4 SDK and theos toolchain once and compiles in a container.
 10. Sign and install with `tools/plumesign.sh sign --package build/CleanCam-legacy.ipa --apple-id --register-and-install --udid "$(idevice_id -l | head -1)" < /dev/null 2>&1 | grep -v DEBUG | tail -5`.
 11. On a first install, ask the user to trust the developer in Settings → General → Device Management, named Profiles & Device Management on some phones, since iOS 10 has no Developer Mode.
 12. Ask the user to open CleanCam and allow the camera and microphone prompts; iOS 10 asks no local network question.
