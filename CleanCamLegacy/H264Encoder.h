@@ -6,10 +6,17 @@
 @interface H264Encoder : NSObject
 
 @property (nonatomic, copy) void (^onEncoded)(NSData *data, BOOL isKeyframe);
+/// The bitrate the encoder aims for now, at or below the target. Read on the video queue.
+@property (nonatomic, readonly) int bitRate;
 
 - (void)requestKeyframe;
-/// Called on the video queue, like reset.
+/// Called on the video queue, like reset, setFrameRate and adaptToBacklog.
 - (void)encode:(CMSampleBufferRef)sampleBuffer;
 - (void)reset;
+/// Plans rate control and keyframes around the camera's top frame rate, and restarts the bitrate at its target.
+- (void)setFrameRate:(int)frameRate;
+/// Called once a second with the most sends any client had waiting.
+/// Steps the bitrate down while a client falls behind, and back up after 10 s without a backlog.
+- (void)adaptToBacklog:(int)backlog;
 
 @end

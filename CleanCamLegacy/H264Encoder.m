@@ -6,9 +6,22 @@
 static const int32_t kWidth = 1920;
 static const int32_t kHeight = 1080;
 static const uint8_t kStartCode[] = {0, 0, 0, 1};
+/// The target bitrate at 30 fps, about 0.16 bits per pixel in each frame; the target scales with the frame rate.
+static const int kTargetAt30fps = 10000000;
+/// A backlog past this many sends, of the server's 30, means the link carries less than the stream sends.
+static const int kCongestedBacklog = 10;
+/// Seconds without any backlog before the bitrate steps back up.
+static const int kRecoverySeconds = 10;
+/// Each step changes the bitrate by this share.
+static const double kStep = 0.2;
+/// The lowest share of the target the bitrate steps down to.
+static const double kFloorShare = 0.2;
 
 @implementation H264Encoder {
     // Used on the video queue only.
+    /// The camera's top frame rate; rate control and keyframes plan around it.
+    int _frameRate;
+    int _secondsWithoutBacklog;
     VTCompressionSessionRef _session;
     CIContext *_ciContext;
     CVPixelBufferPoolRef _letterboxPool;
@@ -21,6 +34,8 @@ static const uint8_t kStartCode[] = {0, 0, 0, 1};
     if (!(self = [super init])) return nil;
     _ciContext = [CIContext contextWithOptions:nil];
     _lock = [NSLock new];
+    _frameRate = 30;
+    _bitRate = kTargetAt30fps;
     return self;
 }
 
@@ -40,7 +55,7 @@ static const uint8_t kStartCode[] = {0, 0, 0, 1};
     if (!source) return;
     CVPixelBufferRef imageBuffer = [self fitToStream:source];
     if (!imageBuffer) return;
-    if (!_session) _session = [H264Encoder makeSession];
+    if (!_session) _session = [self makeSession];
     if (!_session) {
         CVPixelBufferRelease(imageBuffer);
         return;
@@ -74,6 +89,54 @@ static const uint8_t kStartCode[] = {0, 0, 0, 1};
     }
 }
 
+- (void)setFrameRate:(int)frameRate {
+    if (frameRate <= 0 || frameRate == _frameRate) return;
+    _frameRate = frameRate;
+    _bitRate = [self targetBitRate];
+    _secondsWithoutBacklog = 0;
+    [self applyRates];
+}
+
+- (void)adaptToBacklog:(int)backlog {
+    int next = _bitRate;
+    if (backlog > kCongestedBacklog) {
+        _secondsWithoutBacklog = 0;
+        next = MAX((int)(_bitRate * (1 - kStep)), (int)([self targetBitRate] * kFloorShare));
+    } else if (backlog > 0) {
+        _secondsWithoutBacklog = 0;
+    } else {
+        _secondsWithoutBacklog += 1;
+        if (_secondsWithoutBacklog < kRecoverySeconds) return;
+        _secondsWithoutBacklog = 0;
+        // One step up undoes one step down.
+        next = MIN((int)(_bitRate / (1 - kStep)), [self targetBitRate]);
+    }
+    if (next == _bitRate) return;
+    _bitRate = next;
+    [self applyRates];
+}
+
+- (int)targetBitRate {
+    return kTargetAt30fps * _frameRate / 30;
+}
+
+/// The settings that follow the frame rate and the bitrate; a running session takes new ones live.
+- (NSDictionary *)rateProperties {
+    return @{
+        (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate: @(_bitRate),
+        // Caps any one second at 1.5 times the average, in bytes, so a burst can't swamp the link.
+        (__bridge NSString *)kVTCompressionPropertyKey_DataRateLimits: @[@(_bitRate * 3 / 2 / 8), @1],
+        (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate: @(_frameRate),
+        // A keyframe every 2 s, also while the camera slows in the dark.
+        (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameInterval: @(_frameRate * 2),
+        (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration: @2,
+    };
+}
+
+- (void)applyRates {
+    if (_session) VTSessionSetProperties(_session, (__bridge CFDictionaryRef)[self rateProperties]);
+}
+
 /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
 /// Returns a retained buffer.
 - (CVPixelBufferRef)fitToStream:(CVPixelBufferRef)source CF_RETURNS_RETAINED {
@@ -105,18 +168,16 @@ static const uint8_t kStartCode[] = {0, 0, 0, 1};
     return output;
 }
 
-+ (VTCompressionSessionRef)makeSession CF_RETURNS_RETAINED {
+- (VTCompressionSessionRef)makeSession CF_RETURNS_RETAINED {
     VTCompressionSessionRef session = NULL;
     VTCompressionSessionCreate(NULL, kWidth, kHeight, kCMVideoCodecType_H264, NULL, NULL, NULL, NULL, NULL, &session);
     if (!session) return NULL;
-    NSDictionary *properties = @{
+    NSMutableDictionary *properties = [@{
         (__bridge NSString *)kVTCompressionPropertyKey_RealTime: @YES,
         (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel: (__bridge NSString *)kVTProfileLevel_H264_High_AutoLevel,
         (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering: @NO,  // no B-frames, less delay
-        (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate: @10000000,
-        (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate: @30,
-        (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameInterval: @60,
-    };
+    } mutableCopy];
+    [properties addEntriesFromDictionary:[self rateProperties]];
     VTSessionSetProperties(session, (__bridge CFDictionaryRef)properties);
     VTCompressionSessionPrepareToEncodeFrames(session);
     return session;

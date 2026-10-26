@@ -94,6 +94,8 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
 @property (nonatomic, copy) NSString *formatName;
 /// The frames the camera delivered in the last second.
 @property (nonatomic) int frameRate;
+/// The bitrate the encoder aims for, after it adapted to the link.
+@property (nonatomic) int bitRate;
 @property (nonatomic) FocusTarget focusTarget;
 @end
 
@@ -176,7 +178,8 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
 
 - (NSString *)details {
     if (!self.formatName) return @"";
-    return [NSString stringWithFormat:@"%@ · %d fps · %@", self.formatName, self.frameRate, FocusTargetName(self.focusTarget)];
+    return [NSString stringWithFormat:@"%@ · %d fps · %.1f Mbps · %@", self.formatName, self.frameRate,
+                                      self.bitRate / 1e6, FocusTargetName(self.focusTarget)];
 }
 
 - (void)start {
@@ -322,6 +325,13 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     [_session commitConfiguration];
     _device = device;
     [self applyOrientation];
+    // The encoder plans its bitrate and keyframes around the mode's top rate.
+    double frameDuration = CMTimeGetSeconds(device.activeVideoMinFrameDuration);
+    if (frameDuration > 0) {
+        int topRate = (int)lround(1 / frameDuration);
+        H264Encoder *encoder = _encoder;
+        dispatch_async(_videoQueue, ^{ [encoder setFrameRate:topRate]; });
+    }
 
     CMVideoDimensions size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription);
     double lossless = device.activeFormat.videoZoomFactorUpscaleThreshold;
@@ -380,7 +390,8 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     });
 }
 
-/// Counts the frames the camera delivers each second, for the status line.
+/// Counts the frames the camera delivers each second, for the status line,
+/// and adapts the encoder's bitrate to how far the PC fell behind in that second.
 - (void)startFrameCounter {
     dispatch_async(_videoQueue, ^{
         if (self->_frameTimer) return;
@@ -392,8 +403,11 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
             if (!strongSelf) return;
             int frames = strongSelf->_framesThisSecond;
             strongSelf->_framesThisSecond = 0;
+            [strongSelf->_encoder adaptToBacklog:[strongSelf->_server takePeakBacklog]];
+            int bitRate = strongSelf->_encoder.bitRate;
             dispatch_async(dispatch_get_main_queue(), ^{
                 strongSelf.frameRate = frames;
+                strongSelf.bitRate = bitRate;
                 [strongSelf changed];
             });
         });

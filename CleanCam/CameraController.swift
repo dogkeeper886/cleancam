@@ -36,6 +36,8 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var formatName: String?
     /// The frames the camera delivered in the last second.
     @Published private(set) var frameRate = 0
+    /// The bitrate the encoder aims for, after it adapted to the link.
+    @Published private(set) var bitRate = 0
     @Published private(set) var focusTarget = FocusTarget.center
 
     let previewLayer = AVCaptureVideoPreviewLayer()
@@ -87,10 +89,11 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// What the auto settings chose, for the status line, such as "1080p · 24 fps · Face".
+    /// What the auto settings chose, for the status line, such as "1080p · 24 fps · 8.0 Mbps · Face".
     var details: String {
         guard let formatName else { return "" }
-        return "\(formatName) · \(frameRate) fps · \(focusTarget.rawValue)"
+        let mbps = String(format: "%.1f", Double(bitRate) / 1_000_000)
+        return "\(formatName) · \(frameRate) fps · \(mbps) Mbps · \(focusTarget.rawValue)"
     }
 
     func start() {
@@ -227,6 +230,12 @@ final class CameraController: NSObject, ObservableObject {
         session.commitConfiguration()
         self.device = device
         applyOrientation()
+        // The encoder plans its bitrate and keyframes around the mode's top rate.
+        let frameDuration = device.activeVideoMinFrameDuration.seconds
+        if frameDuration > 0 {
+            let topRate = Int((1 / frameDuration).rounded())
+            videoQueue.async { self.encoder.setFrameRate(topRate) }
+        }
 
         let size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         let lossless = Double(device.activeFormat.videoZoomFactorUpscaleThreshold)
@@ -332,7 +341,8 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// Counts the frames the camera delivers each second, for the status line.
+    /// Counts the frames the camera delivers each second, for the status line,
+    /// and adapts the encoder's bitrate to how far the PC fell behind in that second.
     private func startFrameCounter() {
         videoQueue.async {
             guard self.frameTimer == nil else { return }
@@ -342,7 +352,12 @@ final class CameraController: NSObject, ObservableObject {
                 guard let self else { return }
                 let frames = self.framesThisSecond
                 self.framesThisSecond = 0
-                DispatchQueue.main.async { self.frameRate = frames }
+                self.encoder.adapt(toBacklog: self.server.takePeakBacklog())
+                let bitRate = self.encoder.bitRate
+                DispatchQueue.main.async {
+                    self.frameRate = frames
+                    self.bitRate = bitRate
+                }
             }
             timer.resume()
             self.frameTimer = timer

@@ -8,10 +8,14 @@ CleanCam sends only the camera's picture and the iPhone's microphone over the US
 
 CleanCam streams the back camera's frames instead of the screen, so the PC receives the clean picture.
 
-![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080 and 30 fps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire pipe-tunnel source, the CleanCam microphone; and cat passes what apps play to the CleanCam speaker, a pipe-tunnel sink, back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
+![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080, 20 to 30 fps and up to 10 Mbps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire pipe-tunnel source, the CleanCam microphone; and cat passes what apps play to the CleanCam speaker, a pipe-tunnel sink, back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
 
-- **Preview:** the phone shows the picture with a zoom slider, which switches lenses on phones with more than one.
+- **Preview:** the phone shows the picture with a zoom slider, which switches lenses on phones with more than one. The zoom label turns yellow where the camera starts to upscale.
+- **Focus:** focus and exposure follow the largest face, or the center while no face shows. Tap the preview to hold them on a point; a long press hands them back.
 - **Lock:** holds focus, exposure and white balance, so the picture stays steady.
+- **Low light:** in a dark room the camera slows from 30 toward 20 fps for more light per frame, and turns on low-light boost where the phone has it.
+- **Bitrate:** the video starts at 10 Mbps, steps down while the PC falls behind, as on a weak WiFi link, and climbs back once it keeps up.
+- **Status:** a second line names the camera mode, the frame rate, the bitrate and what focus follows, such as `1080p · 30 fps · 10.0 Mbps · Face`.
 - **Mute:** stops sending the microphone; the PC's CleanCam microphone goes silent. The button appears once the microphone is allowed.
 - **Speaker:** the loudspeaker plays whatever the video app sends to the CleanCam speaker, at the loudness the phone's volume buttons set.
 - **Echo cancellation:** the iPhone removes its loudspeaker's sound from the microphone, as in a phone call, so the others hear only you. Your voice sounds like a phone call too.
