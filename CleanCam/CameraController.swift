@@ -5,10 +5,13 @@ import UIKit
 /// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to `port`,
 /// and the microphone as raw PCM to whoever connects to `audioPort`.
 /// Plays the raw PCM a PC sends to `speakerPort` on the loudspeaker.
+/// Reports its stream to whoever connects to `debugPort`, one JSON line a second and one per event, and takes
+/// commands there.
 final class CameraController: NSObject, ObservableObject {
     static let port: UInt16 = 5000
     static let audioPort: UInt16 = 5001
     static let speakerPort: UInt16 = 5002
+    static let debugPort: UInt16 = 5003
     /// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
     static let frameRates = 20...30
     /// How long focus stays on a face that left the picture before it returns to the center, in seconds.
@@ -52,6 +55,9 @@ final class CameraController: NSObject, ObservableObject {
     private let server = StreamServer(port: CameraController.port)
     private let audioServer = StreamServer(port: CameraController.audioPort)
     private let speakerServer = StreamServer(port: CameraController.speakerPort)
+    private let debugServer = StreamServer(port: CameraController.debugPort)
+    // Used on the debug server's queue only.
+    private var debugInput = Data()
     // Used on sessionQueue only.
     private var device: AVCaptureDevice?
     private var videoOrientation = AVCaptureVideoOrientation.landscapeRight
@@ -83,10 +89,18 @@ final class CameraController: NSObject, ObservableObject {
             guard let self else { return }
             // A new viewer can only start decoding at a keyframe.
             if count > 0 { self.encoder.requestKeyframe() }
+            self.sendDebug(["event": "viewers", "port": Int(Self.port), "count": count])
             DispatchQueue.main.async {
                 self.status = count > 0 ? "Streaming to PC" : "Waiting for PC on port \(Self.port)"
             }
         }
+        for (stream, port) in [(audioServer, Self.audioPort), (speakerServer, Self.speakerPort)] {
+            stream.onClientsChanged = { [weak self] count in
+                self?.sendDebug(["event": "viewers", "port": Int(port), "count": count])
+            }
+        }
+        encoder.onEvent = { [weak self] event in self?.sendDebug(event) }
+        debugServer.onReceive = { [weak self] data in self?.receiveDebug(data) }
     }
 
     /// What the auto settings chose, for the status line, such as "1080p · 24 fps · 8.0 Mbps · Face".
@@ -100,6 +114,7 @@ final class CameraController: NSObject, ObservableObject {
         server.start()
         audioServer.start()
         speakerServer.start()
+        debugServer.start()
         startFrameCounter()
         AVCaptureDevice.requestAccess(for: .video) { granted in
             guard granted else {
@@ -125,6 +140,7 @@ final class CameraController: NSObject, ObservableObject {
         server.stop()
         audioServer.stop()
         speakerServer.stop()
+        debugServer.stop()
         callAudio.stop()
         sessionQueue.async { self.session.stopRunning() }
         videoQueue.async {
@@ -341,7 +357,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// Counts the frames the camera delivers each second, for the status line,
+    /// Counts the frames the camera delivers each second, for the status line and the debug port,
     /// and adapts the encoder's bitrate to how far the PC fell behind in that second.
     private func startFrameCounter() {
         videoQueue.async {
@@ -352,8 +368,19 @@ final class CameraController: NSObject, ObservableObject {
                 guard let self else { return }
                 let frames = self.framesThisSecond
                 self.framesThisSecond = 0
-                self.encoder.adapt(toBacklog: self.server.takePeakBacklog())
+                let backlog = self.server.takePeakBacklog()
+                self.encoder.adapt(toBacklog: backlog)
                 let bitRate = self.encoder.bitRate
+                let output = self.encoder.takeOutput()
+                self.sendDebug([
+                    "event": "second", "fps": frames, "topFps": self.encoder.frameRate, "target": bitRate,
+                    "pinned": self.encoder.isPinned, "out": output.bytes * 8, "encoded": output.frames,
+                    "keyframes": output.keyframes, "backlog": backlog,
+                    "viewers": [
+                        "video": self.server.connectionCount, "mic": self.audioServer.connectionCount,
+                        "speaker": self.speakerServer.connectionCount,
+                    ],
+                ])
                 DispatchQueue.main.async {
                     self.frameRate = frames
                     self.bitRate = bitRate
@@ -362,6 +389,48 @@ final class CameraController: NSObject, ObservableObject {
             timer.resume()
             self.frameTimer = timer
         }
+    }
+
+    /// Sends one JSON line, stamped with the phone's uptime, to every client of the debug port. Called on any queue.
+    private func sendDebug(_ event: [String: Any]) {
+        guard debugServer.hasClients else { return }
+        var line = event
+        line["t"] = (ProcessInfo.processInfo.systemUptime * 1000).rounded() / 1000
+        guard JSONSerialization.isValidJSONObject(line),
+              var data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]) else { return }
+        data.append(0x0A)
+        debugServer.broadcast(data, isKeyframe: true)
+    }
+
+    /// Called on the debug server's queue with what a debug client typed: one command per line.
+    private func receiveDebug(_ data: Data) {
+        debugInput.append(data)
+        while let newline = debugInput.firstIndex(of: 0x0A) {
+            let line = String(decoding: debugInput[..<newline], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            debugInput = debugInput.subdata(in: newline + 1..<debugInput.endIndex)
+            if !line.isEmpty { runDebugCommand(line) }
+        }
+        // A client that never ends a line can't grow the buffer without bound.
+        if debugInput.count > 1024 { debugInput = Data() }
+    }
+
+    /// Runs a debug command: `bitrate N` holds the bitrate at N bits per second, `auto` hands it back to adaptation,
+    /// and `keyframe` asks for a keyframe.
+    private func runDebugCommand(_ line: String) {
+        let words = line.split(separator: " ").map(String.init)
+        var ok = true
+        switch words.first {
+        case "bitrate"? where words.count == 2 && (Int(words[1]) ?? 0) > 0:
+            let rate = Int(words[1])!
+            videoQueue.async { self.encoder.pin(bitRate: rate) }
+        case "auto"? where words.count == 1:
+            videoQueue.async { self.encoder.unpin() }
+        case "keyframe"? where words.count == 1:
+            encoder.requestKeyframe()
+        default:
+            ok = false
+        }
+        sendDebug(["event": "command", "command": line, "ok": ok])
     }
 
     /// Called on sessionQueue.

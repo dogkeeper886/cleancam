@@ -4,6 +4,8 @@
 /// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to port 5000,
 /// and the microphone as raw PCM to whoever connects to port 5001.
 /// Plays the raw PCM a PC sends to port 5002 on the loudspeaker.
+/// Reports its stream to whoever connects to port 5003, one JSON line a second and one per event, and takes
+/// commands there.
 @interface CameraController : NSObject
 
 @property (nonatomic, readonly) AVCaptureVideoPreviewLayer *previewLayer;

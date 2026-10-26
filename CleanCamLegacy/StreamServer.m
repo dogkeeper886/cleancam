@@ -64,6 +64,13 @@ static BOOL SendAll(int fd, NSData *data) {
     return hasClients;
 }
 
+- (NSUInteger)connectionCount {
+    [_lock lock];
+    NSUInteger count = _clientCount;
+    [_lock unlock];
+    return count;
+}
+
 - (int)takePeakBacklog {
     [_lock lock];
     int peak = _peakBacklog;

@@ -40,6 +40,12 @@ final class StreamServer {
         return clientCount > 0
     }
 
+    var connectionCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return clientCount
+    }
+
     /// The most sends any client had waiting since the last call, up to `maxPendingSends`.
     /// It grows when the link carries less than the stream sends.
     func takePeakBacklog() -> Int {

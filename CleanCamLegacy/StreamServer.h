@@ -9,6 +9,7 @@
 /// When set, called on the server's queue with whatever a client sends.
 @property (nonatomic, copy) void (^onReceive)(NSData *data);
 @property (nonatomic, readonly) BOOL hasClients;
+@property (nonatomic, readonly) NSUInteger connectionCount;
 
 - (instancetype)initWithPort:(uint16_t)port;
 - (void)start;
