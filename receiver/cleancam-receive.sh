@@ -134,12 +134,22 @@ fi
 FPS_MODE=-vsync
 [[ $(ffmpeg -hide_banner -h full 2>/dev/null) == *"-fps_mode"* ]] && FPS_MODE=-fps_mode
 
+# The phone's H.264 names no frame rate. ffmpeg 6.0 and older take it from -framerate, but 6.1 (libavformat 60.16) and
+# newer give each frame 1 tick of 1/1200000 s, so every frame lands on timestamp 0 and ffmpeg warns on each one.
+# -r on the input spaces the frames at the frame rate again.
+FRAME_RATE=(-framerate 30)
+LAVF_VERSION='libavformat +([0-9]+)\. *([0-9]+)'
+if [[ $(ffmpeg -hide_banner -version 2>/dev/null) =~ $LAVF_VERSION ]] &&
+  (( BASH_REMATCH[1] > 60 || (BASH_REMATCH[1] == 60 && BASH_REMATCH[2] >= 16) )); then
+  FRAME_RATE+=(-r 30)
+fi
+
 MESSAGE="Writing the CleanCam stream from $HOST:$PORT to $VIDEO"
 [[ $SOUND ]] && MESSAGE+=", its sound to the CleanCam microphone, and the CleanCam speaker to the phone"
 echo "$MESSAGE. Ctrl-C to stop."
 while true; do
   ffmpeg -hide_banner -loglevel warning \
-    -fflags nobuffer -flags low_delay -f h264 -framerate 30 -i "tcp://$HOST:$PORT" \
+    -fflags nobuffer -flags low_delay -f h264 "${FRAME_RATE[@]}" -i "tcp://$HOST:$PORT" \
     "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" || true
   sleep 1  # the app is closed or not reachable yet; try again
 done
