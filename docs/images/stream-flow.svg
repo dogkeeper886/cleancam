@@ -100,11 +100,11 @@
   <text class="sub" x="362" y="408" text-anchor="middle">/dev/video10 “CleanCam”</text>
 
   <rect class="box" x="264" y="432" width="196" height="52" rx="8"/>
-  <text class="title" x="362" y="454" text-anchor="middle">PipeWire pipe-tunnel</text>
+  <text class="title" x="362" y="454" text-anchor="middle">PipeWire or PulseAudio</text>
   <text class="sub" x="362" y="472" text-anchor="middle">“CleanCam” microphone</text>
 
   <rect class="box" x="264" y="496" width="196" height="52" rx="8"/>
-  <text class="title" x="362" y="518" text-anchor="middle">PipeWire pipe-tunnel</text>
+  <text class="title" x="362" y="518" text-anchor="middle">PipeWire or PulseAudio</text>
   <text class="sub" x="362" y="536" text-anchor="middle">“CleanCam” speaker</text>
 
   <rect class="box" x="36" y="368" width="196" height="180" rx="8"/>
