@@ -33,4 +33,4 @@ Find the symptom, apply the fix, then resume at the step that failed.
 | The "CleanCam" microphone stays silent and the app shows no Mute button | The user denied the microphone prompt | Ask the user to allow it in Settings → CleanCam → Microphone, then reopen the app |
 | The picture looks left-right flipped in the video app | The video app mirrors the user's own preview; the other side sees it the right way round | Turn off the app's mirroring, in Zoom Settings → Video → "Mirror my video" |
 | The phone stays on "Waiting for PC on port …" | The receiver is not running, or the iPhone is not paired | Start `receiver/cleancam-receive.sh`; check `idevicepair validate` |
-| The receiver prints `Non-monotonic DTS` | The raw H.264 stream carries no timestamps | Harmless |
+| The receiver prints `Non-monotonic DTS` on every frame | ffmpeg 6.1 and newer ignore `-framerate` for the phone's stream, which names no frame rate | Use the current receiver, which adds `-r 30` from libavformat 60.16 (`ffmpeg -version`); the picture reaches the webcam either way |
