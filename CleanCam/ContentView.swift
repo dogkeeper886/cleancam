@@ -9,7 +9,10 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            PreviewView(previewLayer: camera.previewLayer)
+            // Tap: focus and exposure follow that point. Long press: back to faces, or the center.
+            PreviewView(previewLayer: camera.previewLayer,
+                        onTap: { camera.focus(atPreviewPoint: $0) },
+                        onLongPress: { camera.resetFocus() })
                 .ignoresSafeArea()
             controls
             if isScreenOff {
@@ -48,11 +51,16 @@ struct ContentView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(camera.status)
+            if !camera.details.isEmpty {
+                Text(camera.details)
+            }
             if camera.zoomRange.lowerBound < camera.zoomRange.upperBound {
                 HStack(spacing: 12) {
                     Slider(value: Binding(get: { camera.zoom }, set: { camera.setZoom($0) }), in: camera.zoomRange)
                         .frame(maxWidth: 280)
+                    // Yellow past the lossless zoom, where the camera upscales.
                     Text(String(format: "%.1fx", camera.zoom / camera.zoomDisplayScale))
+                        .foregroundStyle(camera.zoom > camera.losslessZoom ? Color.yellow : Color.white)
                         .frame(width: 44)
                 }
             }
@@ -92,26 +100,45 @@ struct ContentView: View {
     }
 }
 
-/// Hosts the camera controller's preview layer.
+/// Hosts the camera controller's preview layer and reports taps and long presses on it.
 struct PreviewView: UIViewRepresentable {
     let previewLayer: AVCaptureVideoPreviewLayer
+    /// Called with the tapped point in the preview layer's coordinates.
+    let onTap: (CGPoint) -> Void
+    let onLongPress: () -> Void
 
     func makeUIView(context: Context) -> LayerView {
         LayerView(hosting: previewLayer)
     }
 
-    func updateUIView(_ uiView: LayerView, context: Context) {}
+    func updateUIView(_ uiView: LayerView, context: Context) {
+        uiView.onTap = onTap
+        uiView.onLongPress = onLongPress
+    }
 
     final class LayerView: UIView {
+        var onTap: ((CGPoint) -> Void)?
+        var onLongPress: (() -> Void)?
         private let hosted: CALayer
 
         init(hosting sublayer: CALayer) {
             hosted = sublayer
             super.init(frame: .zero)
             layer.addSublayer(sublayer)
+            addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+            addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed)))
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        // The hosted layer fills the view, so a point in the view is the same point in the layer.
+        @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+            onTap?(recognizer.location(in: self))
+        }
+
+        @objc private func longPressed(_ recognizer: UILongPressGestureRecognizer) {
+            if recognizer.state == .began { onLongPress?() }
+        }
 
         override func layoutSubviews() {
             super.layoutSubviews()

@@ -12,6 +12,10 @@
 @property (nonatomic, readonly, copy) NSString *status;
 @property (nonatomic, readonly) double zoom;
 @property (nonatomic, readonly) double maxZoom;
+/// The zoom up to which the picture uses real sensor pixels; past it, the camera upscales.
+@property (nonatomic, readonly) double losslessZoom;
+/// What the auto settings chose, for the status line, such as "1080p · 24 fps · Face"; empty until the camera runs.
+@property (nonatomic, readonly, copy) NSString *details;
 @property (nonatomic, readonly) BOOL isLocked;
 /// False when the microphone is not allowed or missing; the camera streams either way.
 @property (nonatomic, readonly) BOOL hasMic;
@@ -27,6 +31,11 @@
 - (void)setZoom:(double)zoom;
 /// Locks focus, exposure and white balance so the picture stops shifting.
 - (void)toggleLock;
+/// Focus and exposure follow the tapped point until the next tap or resetFocus, while Lock is off.
+/// The point is in the preview layer's coordinates.
+- (void)focusAtPreviewPoint:(CGPoint)point;
+/// Hands focus and exposure back to faces, or to the center while no face shows.
+- (void)resetFocus;
 /// Stops or resumes sending the microphone; the PC's microphone stays and goes silent.
 - (void)toggleMic;
 

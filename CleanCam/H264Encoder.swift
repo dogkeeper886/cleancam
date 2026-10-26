@@ -9,8 +9,23 @@ final class H264Encoder {
     private static let width = 1920
     private static let height = 1080
     private static let startCode: [UInt8] = [0, 0, 0, 1]
+    /// The target bitrate at 30 fps, about 0.16 bits per pixel in each frame; the target scales with the frame rate.
+    private static let targetAt30fps = 10_000_000
+    /// A backlog past this many sends, of the server's 30, means the link carries less than the stream sends.
+    private static let congestedBacklog = 10
+    /// Seconds without any backlog before the bitrate steps back up.
+    private static let recoverySeconds = 10
+    /// Each step changes the bitrate by this share.
+    private static let step = 0.2
+    /// The lowest share of the target the bitrate steps down to.
+    private static let floorShare = 0.2
 
     // Used on the video queue only.
+    /// The camera's top frame rate; rate control and keyframes plan around it.
+    private(set) var frameRate = 30
+    /// The bitrate the encoder aims for now, at or below the target.
+    private(set) var bitRate = H264Encoder.targetAt30fps
+    private var secondsWithoutBacklog = 0
     private var session: VTCompressionSession?
     private let ciContext = CIContext()
     private var letterboxPool: CVPixelBufferPool?
@@ -27,7 +42,7 @@ final class H264Encoder {
     func encode(_ sampleBuffer: CMSampleBuffer) {
         guard let source = CMSampleBufferGetImageBuffer(sampleBuffer),
               let imageBuffer = fitToStream(source) else { return }
-        if session == nil { session = Self.makeSession() }
+        if session == nil { session = makeSession() }
         guard let session else { return }
 
         lock.lock()
@@ -55,6 +70,55 @@ final class H264Encoder {
     func reset() {
         if let session { VTCompressionSessionInvalidate(session) }
         session = nil
+    }
+
+    /// Plans rate control and keyframes around the camera's top frame rate, and restarts the bitrate at its target.
+    func setFrameRate(_ rate: Int) {
+        guard rate > 0, rate != frameRate else { return }
+        frameRate = rate
+        bitRate = targetBitRate
+        secondsWithoutBacklog = 0
+        applyRates()
+    }
+
+    /// Called once a second with the most sends any client had waiting.
+    /// Steps the bitrate down while a client falls behind, and back up after `recoverySeconds` without a backlog.
+    func adapt(toBacklog backlog: Int) {
+        var next = bitRate
+        if backlog > Self.congestedBacklog {
+            secondsWithoutBacklog = 0
+            next = max(Int(Double(bitRate) * (1 - Self.step)), Int(Double(targetBitRate) * Self.floorShare))
+        } else if backlog > 0 {
+            secondsWithoutBacklog = 0
+        } else {
+            secondsWithoutBacklog += 1
+            guard secondsWithoutBacklog >= Self.recoverySeconds else { return }
+            secondsWithoutBacklog = 0
+            // One step up undoes one step down.
+            next = min(Int(Double(bitRate) / (1 - Self.step)), targetBitRate)
+        }
+        guard next != bitRate else { return }
+        bitRate = next
+        applyRates()
+    }
+
+    private var targetBitRate: Int { Self.targetAt30fps * frameRate / 30 }
+
+    /// The settings that follow the frame rate and the bitrate; a running session takes new ones live.
+    private var rateProperties: [CFString: Any] {
+        [
+            kVTCompressionPropertyKey_AverageBitRate: bitRate,
+            // Caps any one second at 1.5 times the average, in bytes, so a burst can't swamp the link.
+            kVTCompressionPropertyKey_DataRateLimits: [bitRate * 3 / 2 / 8, 1] as CFArray,
+            kVTCompressionPropertyKey_ExpectedFrameRate: frameRate,
+            // A keyframe every 2 s, also while the camera slows in the dark.
+            kVTCompressionPropertyKey_MaxKeyFrameInterval: frameRate * 2,
+            kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration: 2,
+        ]
+    }
+
+    private func applyRates() {
+        if let session { VTSessionSetProperties(session, propertyDictionary: rateProperties as CFDictionary) }
     }
 
     /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
@@ -86,21 +150,19 @@ final class H264Encoder {
         return output
     }
 
-    private static func makeSession() -> VTCompressionSession? {
+    private func makeSession() -> VTCompressionSession? {
         var session: VTCompressionSession?
         VTCompressionSessionCreate(
-            allocator: nil, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
+            allocator: nil, width: Int32(Self.width), height: Int32(Self.height), codecType: kCMVideoCodecType_H264,
             encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard let session else { return nil }
-        let properties: [CFString: Any] = [
+        var properties: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: true,
             kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
             kVTCompressionPropertyKey_AllowFrameReordering: false,  // no B-frames, less delay
-            kVTCompressionPropertyKey_AverageBitRate: 10_000_000,
-            kVTCompressionPropertyKey_ExpectedFrameRate: 30,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval: 60,
         ]
+        properties.merge(rateProperties) { $1 }
         VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
         VTCompressionSessionPrepareToEncodeFrames(session)
         return session
