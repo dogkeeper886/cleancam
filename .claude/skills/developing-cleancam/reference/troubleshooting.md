@@ -26,7 +26,8 @@ Find the symptom, apply the fix, then resume at the step that failed.
 | The app won't open: "Untrusted Developer" | First install from this Apple ID | Settings → General → VPN & Device Management → Trust |
 | The app stopped opening after about a week | Free Apple ID signing lasts 7 days | Reinstall with step 13 of `SKILL.md` |
 | The video app lists no "CleanCam" camera | `exclusive_caps=1` lists the device only while ffmpeg writes to it | Start the receiver and the app, then restart the video app |
-| The video app lists no "CleanCam" microphone or speaker | The receiver is not running, or it printed `pw-cli not found` | Start the receiver; install PipeWire's tools from `host-setup.md` |
+| The video app lists no "CleanCam" microphone or speaker | The receiver is not running, or it printed `Neither PipeWire (pw-cli) nor PulseAudio found` | Start the receiver; install PipeWire's or PulseAudio's tools from `host-setup.md` |
+| The receiver prints `iproxy not found` | The distribution packages no libusbmuxd tools, as on RHEL 8 | Install them from `host-setup.md`, or run iproxy in a container and pass 127.0.0.1, as its RHEL 8 family section shows |
 | The iPhone plays no sound | The video app's speaker is not "CleanCam", or the phone's volume is down | Pick "CleanCam" as the speaker; raise the volume with the phone's buttons while CleanCam is open |
 | The others hear themselves | The video app plays the call on the PC's speakers, whose sound the iPhone cannot cancel | Pick "CleanCam" as the speaker too, or wear headphones |
 | The "CleanCam" microphone stays silent and the app shows no Mute button | The user denied the microphone prompt | Ask the user to allow it in Settings → CleanCam → Microphone, then reopen the app |

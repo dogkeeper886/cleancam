@@ -1,18 +1,18 @@
 # Host setup
 
-The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9 family · Flatpak signers.
+The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9 family · RHEL 8 family · Flatpak signers.
 
 ## Tools
 
 | Tool | Used for | Check |
 |---|---|---|
-| `gh`, logged in | CI runs and the IPA download | `gh auth status` |
+| `gh`, logged in | the IPA download from a release or a CI run | `gh auth status` |
 | usbmuxd | the USB link to the iPhone | `idevice_id -l` lists the phone |
 | `idevice_id`, `idevicepair`, `ideviceinfo` (libimobiledevice) | finding and pairing the phone | `command -v idevice_id` |
 | `iproxy` (libusbmuxd) | forwarding the stream port over USB | `command -v iproxy` |
 | ffmpeg with H.264 decoding | decoding the stream | `ffmpeg -hide_banner -decoders \| grep -w h264` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
-| PipeWire as the sound server, with `pw-cli` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module | `wpctl status` lists "CleanCam" while the receiver runs |
+| PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module, or PulseAudio's pipe source and null sink | `wpctl status`, or `pactl list short sources` and `sinks`, lists CleanCam while the receiver runs |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
 | podman or docker | running plumesign when the host's glibc is too old for it, and building CleanCamLegacy | `command -v podman docker` |
 | curl and zip | downloading the iOS 11.4 SDK and toolchain, and packing `build/CleanCam-legacy.ipa` | `command -v curl zip` |
@@ -22,6 +22,7 @@ Install them with the distribution's packages:
 - **Debian / Ubuntu:** `sudo apt install usbmuxd libimobiledevice-utils libusbmuxd-tools ffmpeg v4l2loopback-dkms pipewire-bin`
 - **Fedora**, with RPM Fusion enabled for ffmpeg and v4l2loopback: `sudo dnf install usbmuxd libimobiledevice-utils libusbmuxd-utils ffmpeg v4l2loopback pipewire-utils`
 - **RHEL, Rocky or Alma 9:** see RHEL 9 family below.
+- **RHEL, Rocky or Alma 8:** see RHEL 8 family below.
 
 When `modinfo v4l2loopback` still fails after a dkms or akmod build, run `sudo depmod -a`. The receiver loads the module itself when `/dev/video${VIDEO_NR:-10}` is missing.
 
@@ -87,6 +88,46 @@ Environment=OPENSSL_CONF=/usr/local/etc/usbmuxd-openssl.cnf
 
 - **Reload:** `sudo udevadm control --reload && sudo systemctl daemon-reload && sudo systemctl restart usbmuxd`
 - **glibc:** the family ships glibc 2.34, so upstream plumesign builds run in the container.
+
+## RHEL 8 family
+
+Tested once, on 2026-10-26, with an iPhone 5 on iOS 10.3.4: video, microphone and speaker in a Zoom call over USB. Other RHEL 8 releases, kernels and package versions are untested.
+
+| Part | Version | From |
+|---|---|---|
+| Rocky Linux | 8.10, kernel 4.18.0-553.170.1.el8_10, glibc 2.28 | |
+| ffmpeg | 4.4.8-1.el8 | RPM Fusion free updates |
+| kmod-v4l2loopback | 0.15.1-2.el8 | RPM Fusion free updates |
+| usbmuxd | 1.1.0-13.el8 | AppStream |
+| PulseAudio | 14.0-4.el8 | AppStream |
+| docker-ce | 29.8.2 | Docker's repo; podman is untested |
+| libimobiledevice-utils, libusbmuxd-tools | 1.3.0, 2.0.2 | Ubuntu 24.04, in a container |
+| plumesign | bitxeno v2.7.1-patch.4 | in a container |
+
+- **Repos:** EPEL and RPM Fusion free. `sudo dnf install ffmpeg kmod-v4l2loopback` installs ffmpeg and a v4l2loopback module built for kernel 4.18.0-553.el8_10, which the tested kernel loaded through weak-updates. For a kernel that refuses it, `akmod-v4l2loopback` builds one; that path is untested.
+- **usbmuxd:** AppStream's usbmuxd runs as a service.
+- **idevice tools:** no enabled repo here (BaseOS, AppStream, PowerTools, EPEL, RPM Fusion free updates) offers `libimobiledevice-utils` or `libusbmuxd-utils`. Run Ubuntu's in a container, against the host's usbmuxd:
+
+```bash
+docker build -t cleancam-idevice - <<'EOF'
+FROM docker.io/library/ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends libimobiledevice-utils libusbmuxd-tools \
+    && rm -rf /var/lib/apt/lists/*
+EOF
+idevice() { docker run --rm -i --network host --security-opt label=disable -v /run/usbmuxd:/run/usbmuxd cleancam-idevice "$@"; }
+idevice idevicepair validate
+```
+
+  Take the sign step's UDID from `idevice idevice_id -l | head -1`. For the receiver over USB, forward the ports from the container and pass 127.0.0.1, which the receiver reads like a phone on WiFi; `docker stop cleancam-iproxy` ends the forward:
+
+```bash
+docker run -d --rm --name cleancam-iproxy --network host --security-opt label=disable \
+  -v /run/usbmuxd:/run/usbmuxd cleancam-idevice iproxy 5000:5000 5001:5001 5002:5002
+receiver/cleancam-receive.sh 127.0.0.1
+```
+
+- **Sound:** PulseAudio is the sound server. The receiver makes the CleanCam microphone with a pipe source, and the speaker with a null sink that `parec` reads in 10 ms chunks.
+- **glibc:** 2.28 is older than plumesign's Linux builds need (2.34 for the fork above), so plumesign runs in the container.
 
 ## Flatpak signers
 
