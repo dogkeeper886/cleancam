@@ -78,6 +78,27 @@ else
   echo "Neither PipeWire (pw-cli) nor PulseAudio found: video only." >&2
 fi
 
+# Sends standard input to the phone's speaker port as it arrives. bash's /dev/tcp leaves Nagle's algorithm on, which
+# holds each 10 ms write until the previous one is acknowledged, so the sound reached the phone in 40 ms clumps and
+# stuttered; python3 turns it off. Without python3, /dev/tcp still plays, with the stutter.
+send_speaker() {
+  if command -v python3 >/dev/null; then
+    python3 -I -c '
+import socket, sys
+connection = socket.create_connection((sys.argv[1], int(sys.argv[2])))
+connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+read = sys.stdin.buffer.raw.read
+while True:
+    data = read(65536)
+    if not data:
+        break
+    connection.sendall(data)
+' "$HOST" "$SPEAKER_PORT"
+  else
+    cat >"/dev/tcp/$HOST/$SPEAKER_PORT"
+  fi
+}
+
 if [[ $SOUND == pulseaudio ]]; then
   # PulseAudio suspends a source no app records from; the phone's sound then piles up in the FIFO and the TCP buffers
   # and reaches the next app as tens of seconds of old sound. A reader that never stops keeps the microphone live,
@@ -100,10 +121,10 @@ if [[ $SOUND ]]; then
   while true; do
     if [[ $SOUND == pulseaudio ]]; then
       parec -d cleancam-speaker.monitor --latency-msec=10 --format=s16le --rate=48000 --channels=1 --raw \
-        >"/dev/tcp/$HOST/$SPEAKER_PORT" || true
+        | send_speaker || true
     elif [[ -p $SPEAKER_FIFO ]]; then
-      # cat passes the sound on as soon as it arrives. The tunnel writes whole samples, so every read is too.
-      cat "$SPEAKER_FIFO" 2>/dev/null >"/dev/tcp/$HOST/$SPEAKER_PORT" || true
+      # The tunnel writes whole samples, so every read is too.
+      send_speaker <"$SPEAKER_FIFO" || true
     fi
     sleep 1  # the app is closed or not reachable yet, or the speaker is starting; try again
   done 2>/dev/null &
