@@ -20,7 +20,7 @@ Set up CleanCam on a real iPhone and Linux PC:
 9. Install a plumesign build that passes Apple sign-in, using the patched fork from `reference/host-setup.md` when upstream fails.
 10. Ask the user to log in from their own terminal with `tools/plumesign.sh account login -u <their Apple ID>`, keeping the password and 2FA code out of the chat.
 11. Leave the login's output and any container log unread, since plumesign echoes the password.
-12. Fetch `CleanCam.ipa` from the latest release with `gh release download -R dogkeeper886/cleancam -p CleanCam.ipa -D build`, or from the `CleanCam-ipa` artifact of a GitHub Actions run for an unreleased commit, since only macOS can build it.
+12. Fetch `CleanCam.ipa` from the latest release with `gh release download -R dogkeeper886/cleancam -p CleanCam.ipa -D build --clobber`, or from the `CleanCam-ipa` artifact of a GitHub Actions run for an unreleased commit, since only macOS can build it.
 13. Sign and install with `tools/plumesign.sh sign --package build/CleanCam.ipa --apple-id --register-and-install --udid "$(idevice_id -l | head -1)" < /dev/null 2>&1 | grep -v DEBUG | tail -5`.
 14. On iOS 16 or later, ask the user to turn on Developer Mode in Settings → Privacy & Security and restart the phone.
 15. On a first install, ask the user to trust the developer in Settings → General → VPN & Device Management.

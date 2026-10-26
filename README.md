@@ -31,7 +31,7 @@ An iOS app normally comes from the App Store or from Xcode on a Mac, and a Linux
 
 1. **Get the IPA.** Download the unsigned `CleanCam.ipa` from the [latest release](https://github.com/dogkeeper886/cleancam/releases/latest):
    ```sh
-   gh release download -R dogkeeper886/cleancam -p CleanCam.ipa -D build
+   gh release download -R dogkeeper886/cleancam -p CleanCam.ipa -D build --clobber
    ```
    GitHub Actions also builds it on every push. For a commit after the release, download the run's `CleanCam-ipa` artifact with `gh run download <run-id> -n CleanCam-ipa -D build`. In a fork, enable the workflow in the Actions tab first.
 2. **Install plumesign**, Impactor's command-line signer. Put it on `PATH` or set `PLUMESIGN`. `tools/plumesign.sh` runs it natively, or in podman or docker when it needs a newer glibc than the PC has.
@@ -116,7 +116,7 @@ The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. 
 
 1. **Get the IPA.** Download the unsigned `CleanCam-legacy.ipa` from the [latest release](https://github.com/dogkeeper886/cleancam/releases/latest):
    ```sh
-   gh release download -R dogkeeper886/cleancam -p CleanCam-legacy.ipa -D build
+   gh release download -R dogkeeper886/cleancam -p CleanCam-legacy.ipa -D build --clobber
    ```
    Or build it yourself. The first time it runs, `tools/build-legacy.sh` downloads the iOS 11.4 SDK and the theos project's iOS toolchain, checks them against pinned checksums, compiles in podman or docker, and writes `build/CleanCam-legacy.ipa`:
    ```sh

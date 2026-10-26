@@ -78,6 +78,16 @@ else
   echo "Neither PipeWire (pw-cli) nor PulseAudio found: video only." >&2
 fi
 
+if [[ $SOUND == pulseaudio ]]; then
+  # PulseAudio suspends a source no app records from; the phone's sound then piles up in the FIFO and the TCP buffers
+  # and reaches the next app as tens of seconds of old sound. A reader that never stops keeps the microphone live,
+  # as always-process does for PipeWire.
+  while true; do
+    parec -d cleancam-mic --format=s16le --rate=48000 --channels=1 --raw >/dev/null || true
+    sleep 1  # the microphone is starting; try again
+  done 2>/dev/null &
+fi
+
 if [[ $SOUND ]]; then
   while true; do
     # ffmpeg writes whole samples, so a reconnect never shifts the bytes out of order.
