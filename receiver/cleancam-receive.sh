@@ -43,11 +43,14 @@ fi
 # Loads PipeWire's pipe-tunnel module: a device named "CleanCam" that exchanges raw audio through a FIFO.
 # A source (microphone) reads the FIFO, playing silence while nothing arrives and matching its rate to the phone's clock;
 # a sink (speaker) writes what apps play into it. always-process keeps the device running while no app uses it,
-# so audio never piles up.
+# so audio never piles up. node.latency holds PipeWire's cycle at 512 samples, so the speaker writes its sound in
+# 10.7 ms pieces; an app that asks for 100 ms, as pw-play does, otherwise makes it 43 ms pieces, too coarse for the
+# phone's 80 ms queue, which then cuts the sound into a buzz.
 pipe_tunnel() {  # MODE FIFO NODE_NAME
   pw-cli -m load-module libpipewire-module-pipe-tunnel "{ tunnel.mode = $1 pipe.filename = \"$2\"
     audio.format = S16LE audio.rate = 48000 audio.channels = 1 audio.position = [ MONO ]
-    stream.props = { node.name = $3 node.description = CleanCam node.always-process = true } }" >/dev/null &
+    stream.props = { node.name = $3 node.description = CleanCam node.always-process = true
+      node.latency = 512/48000 } }" >/dev/null &
 }
 
 # Loads a PulseAudio module and keeps its number for the cleanup.
