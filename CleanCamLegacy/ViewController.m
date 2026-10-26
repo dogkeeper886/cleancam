@@ -4,7 +4,9 @@
 
 @implementation ViewController {
     CameraController *_camera;
+    UIView *_previewView;
     UILabel *_statusLabel;
+    UILabel *_detailsLabel;
     UIStackView *_zoomRow;
     UISlider *_zoomSlider;
     UILabel *_zoomLabel;
@@ -20,10 +22,18 @@
     self.view.backgroundColor = [UIColor blackColor];
     _savedBrightness = 0.5;
     _camera = [CameraController new];
-    [self.view.layer addSublayer:_camera.previewLayer];
+    // Tap: focus and exposure follow that point. Long press: back to faces, or the center.
+    _previewView = [[UIView alloc] initWithFrame:self.view.bounds];
+    _previewView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_previewView.layer addSublayer:_camera.previewLayer];
+    [_previewView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(previewTapped:)]];
+    [_previewView addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self
+                                                                                     action:@selector(previewLongPressed:)]];
+    [self.view addSubview:_previewView];
 
     UIFont *font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
     _statusLabel = [self labelWithFont:font];
+    _detailsLabel = [self labelWithFont:font];
     _zoomSlider = [UISlider new];
     _zoomSlider.minimumValue = 1;
     [_zoomSlider addTarget:self action:@selector(zoomChanged) forControlEvents:UIControlEventValueChanged];
@@ -40,7 +50,7 @@
     UIStackView *buttonRow = [[UIStackView alloc] initWithArrangedSubviews:@[_lockButton, _muteButton, screenOffButton]];
     buttonRow.spacing = 12;
 
-    UIStackView *controls = [[UIStackView alloc] initWithArrangedSubviews:@[_statusLabel, _zoomRow, buttonRow]];
+    UIStackView *controls = [[UIStackView alloc] initWithArrangedSubviews:@[_statusLabel, _detailsLabel, _zoomRow, buttonRow]];
     controls.axis = UILayoutConstraintAxisVertical;
     controls.alignment = UIStackViewAlignmentLeading;
     controls.spacing = 8;
@@ -91,7 +101,7 @@
     [super viewDidLayoutSubviews];
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _camera.previewLayer.frame = self.view.bounds;
+    _camera.previewLayer.frame = _previewView.bounds;
     [CATransaction commit];
 }
 
@@ -105,11 +115,15 @@
 
 - (void)refresh {
     _statusLabel.text = _camera.status;
+    _detailsLabel.text = _camera.details;
+    _detailsLabel.hidden = _camera.details.length == 0;
     _screenOffLabel.text = [NSString stringWithFormat:@"%@ · Tap to turn the screen on", _camera.status];
     _zoomRow.hidden = _camera.maxZoom <= 1;
     _zoomSlider.maximumValue = _camera.maxZoom;
     if (!_zoomSlider.isTracking) _zoomSlider.value = _camera.zoom;
     _zoomLabel.text = [NSString stringWithFormat:@"%.1fx", _camera.zoom];
+    // Yellow past the lossless zoom, where the camera upscales.
+    _zoomLabel.textColor = _camera.zoom > _camera.losslessZoom ? [UIColor yellowColor] : [UIColor whiteColor];
     [_lockButton setTitle:_camera.isLocked ? @"Unlock" : @"Lock" forState:UIControlStateNormal];
     _lockButton.backgroundColor = _camera.isLocked ? [UIColor orangeColor] : [UIColor grayColor];
     _muteButton.hidden = !_camera.hasMic;
@@ -119,6 +133,15 @@
 
 - (void)zoomChanged {
     [_camera setZoom:_zoomSlider.value];
+}
+
+- (void)previewTapped:(UITapGestureRecognizer *)recognizer {
+    // The preview layer fills the view, so a point in the view is the same point in the layer.
+    [_camera focusAtPreviewPoint:[recognizer locationInView:_previewView]];
+}
+
+- (void)previewLongPressed:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateBegan) [_camera resetFocus];
 }
 
 - (void)toggleLock {

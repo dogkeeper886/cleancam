@@ -11,6 +11,9 @@ final class H264Encoder {
     private static let startCode: [UInt8] = [0, 0, 0, 1]
 
     // Used on the video queue only.
+    /// The camera's top frame rate; rate control and keyframes plan around it.
+    var frameRate = 30
+    private var bitRate = 10_000_000
     private var session: VTCompressionSession?
     private let ciContext = CIContext()
     private var letterboxPool: CVPixelBufferPool?

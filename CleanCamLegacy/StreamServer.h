@@ -14,5 +14,8 @@
 - (void)start;
 - (void)stop;
 - (void)broadcast:(NSData *)data isKeyframe:(BOOL)isKeyframe;
+/// The most sends any client had waiting since the last call, up to 30.
+/// It grows when the link carries less than the stream sends.
+- (int)takePeakBacklog;
 
 @end

@@ -45,6 +45,7 @@ static BOOL SendAll(int fd, NSData *data) {
 
     NSLock *_lock;
     NSUInteger _clientCount;
+    int _peakBacklog;
 }
 
 - (instancetype)initWithPort:(uint16_t)port {
@@ -61,6 +62,14 @@ static BOOL SendAll(int fd, NSData *data) {
     BOOL hasClients = _clientCount > 0;
     [_lock unlock];
     return hasClients;
+}
+
+- (int)takePeakBacklog {
+    [_lock lock];
+    int peak = _peakBacklog;
+    _peakBacklog = 0;
+    [_lock unlock];
+    return peak;
 }
 
 - (void)start {
@@ -94,11 +103,13 @@ static BOOL SendAll(int fd, NSData *data) {
 
 - (void)broadcast:(NSData *)data isKeyframe:(BOOL)isKeyframe {
     dispatch_async(_queue, ^{
+        int backlog = 0;
         for (StreamClient *client in self->_clients) {
             if (client.waitingForKeyframe) {
                 if (!isKeyframe) continue;
                 client.waitingForKeyframe = NO;
             }
+            backlog = MAX(backlog, client.pendingSends);
             if (client.pendingSends >= kMaxPendingSends) {
                 client.waitingForKeyframe = YES;
                 continue;
@@ -113,6 +124,9 @@ static BOOL SendAll(int fd, NSData *data) {
                 });
             });
         }
+        [self->_lock lock];
+        self->_peakBacklog = MAX(self->_peakBacklog, backlog);
+        [self->_lock unlock];
     });
 }
 

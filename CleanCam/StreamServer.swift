@@ -18,7 +18,7 @@ final class StreamServer {
 
     /// About one second of video or half a second of audio.
     /// A client further behind skips ahead to the next keyframe instead of lagging more.
-    private static let maxPendingSends = 30
+    static let maxPendingSends = 30
 
     private let port: NWEndpoint.Port
     private let queue = DispatchQueue(label: "cleancam.server")
@@ -28,6 +28,7 @@ final class StreamServer {
 
     private let lock = NSLock()
     private var clientCount = 0
+    private var peakBacklog = 0
 
     init(port: UInt16) {
         self.port = NWEndpoint.Port(rawValue: port)!
@@ -37,6 +38,16 @@ final class StreamServer {
         lock.lock()
         defer { lock.unlock() }
         return clientCount > 0
+    }
+
+    /// The most sends any client had waiting since the last call, up to `maxPendingSends`.
+    /// It grows when the link carries less than the stream sends.
+    func takePeakBacklog() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let peak = peakBacklog
+        peakBacklog = 0
+        return peak
     }
 
     func start() {
@@ -72,11 +83,13 @@ final class StreamServer {
 
     func broadcast(_ data: Data, isKeyframe: Bool) {
         queue.async {
+            var backlog = 0
             for (id, client) in self.clients {
                 if client.waitingForKeyframe {
                     guard isKeyframe else { continue }
                     client.waitingForKeyframe = false
                 }
+                backlog = max(backlog, client.pendingSends)
                 if client.pendingSends >= Self.maxPendingSends {
                     client.waitingForKeyframe = true
                     continue
@@ -87,6 +100,9 @@ final class StreamServer {
                     if error != nil { self?.remove(id) }
                 })
             }
+            self.lock.lock()
+            self.peakBacklog = max(self.peakBacklog, backlog)
+            self.lock.unlock()
         }
     }
 
