@@ -80,6 +80,7 @@ Open CleanCam on the iPhone and allow the camera, microphone and local network p
 - **Pick the CleanCam speaker with the CleanCam microphone.** The iPhone cancels only its own loudspeaker's echo; to hear the call on the PC instead, wear headphones.
 - **Keep CleanCam open.** iOS stops the camera when the phone locks or the app leaves the screen. Use Screen off instead.
 - **Mirrored preview:** Zoom mirrors your own preview, so the picture looks flipped to you but reaches the others the right way round. Turn off Settings → Video → "Mirror my video" to see what they see.
+- **Check the sound:** `tools/mic-check.sh` records 5 s from the CleanCam microphone and plays it on the CleanCam speaker, so the phone plays back what its microphone heard.
 
 The receiver reads four settings from the environment:
 
