@@ -13,6 +13,7 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | ffmpeg with H.264 decoding | decoding the stream | `ffmpeg -hide_banner -decoders \| grep -w h264` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
 | PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module, or PulseAudio's pipe source and null sink | `wpctl status`, or `pactl list short sources` and `sinks`, lists CleanCam while the receiver runs |
+| `python3` | sending the CleanCam speaker's sound to the phone in even 10 ms pieces | `command -v python3` |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
 | podman or docker | running plumesign when the host's glibc is too old for it, running iproxy when the host lacks it, and building CleanCamLegacy | `command -v podman docker` |
 | curl and zip | downloading the iOS 11.4 SDK and toolchain, and packing `build/CleanCam-legacy.ipa` | `command -v curl zip` |

@@ -65,7 +65,7 @@ Other distributions and versions are untested. [`host-setup.md`](.claude/skills/
 
 ## Receive on the PC
 
-`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd) or podman or docker to run it in a container, ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec`; on another sound server, the receiver runs video only.
+`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd) or podman or docker to run it in a container, ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec`; on another sound server, the receiver runs video only. The speaker plays smoothly with `python3`, which sends its sound in even 10 ms pieces.
 
 ![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera, the microphone and the speaker in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
 
@@ -80,6 +80,7 @@ Open CleanCam on the iPhone and allow the camera, microphone and local network p
 - **Pick the CleanCam speaker with the CleanCam microphone.** The iPhone cancels only its own loudspeaker's echo; to hear the call on the PC instead, wear headphones.
 - **Keep CleanCam open.** iOS stops the camera when the phone locks or the app leaves the screen. Use Screen off instead.
 - **Mirrored preview:** Zoom mirrors your own preview, so the picture looks flipped to you but reaches the others the right way round. Turn off Settings → Video → "Mirror my video" to see what they see.
+- **Check the sound:** `tools/mic-check.sh` records 5 s from the CleanCam microphone and plays it on the CleanCam speaker, so the phone plays back what its microphone heard.
 
 The receiver reads four settings from the environment:
 
