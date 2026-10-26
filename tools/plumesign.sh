@@ -46,11 +46,15 @@ else
 fi
 TTY=()
 [[ -t 0 ]] && TTY=(-t)
+# usbmuxd's socket is missing after a boot until the first iPhone is plugged in. Mount it only when it exists, and
+# with --mount: -v would make a directory in its place, and usbmuxd then fails to start.
+USBMUXD=()
+[[ -S /run/usbmuxd ]] && USBMUXD=(--mount "type=bind,source=/run/usbmuxd,target=/run/usbmuxd")
 
 # label=disable lets the container reach the usbmuxd socket on SELinux hosts.
 exec "$RUNTIME" run --rm -i "${TTY[@]}" --security-opt label=disable "${USER_OPTS[@]}" \
   -e HOME=/data -v "$DATA:/data" \
-  -v /run/usbmuxd:/run/usbmuxd \
+  "${USBMUXD[@]}" \
   -v "$BIN:/usr/local/bin/plumesign:ro" \
   -v "$CA:/etc/ssl/certs/ca-certificates.crt:ro" \
   -v "$PWD:$PWD:ro" -w "$PWD" \
