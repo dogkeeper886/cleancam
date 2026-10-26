@@ -87,6 +87,13 @@ final class StreamServer {
         }
     }
 
+    /// Closes every client's connection; a client that connects again starts at the next keyframe.
+    func disconnectAll() {
+        queue.async {
+            for id in Array(self.clients.keys) { self.remove(id) }
+        }
+    }
+
     func broadcast(_ data: Data, isKeyframe: Bool) {
         queue.async {
             var backlog = 0
