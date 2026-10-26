@@ -97,6 +97,9 @@ final class CameraController: NSObject, ObservableObject {
             guard let self else { return }
             // A new viewer can only start decoding at a keyframe.
             if count > 0 { self.encoder.requestKeyframe() }
+            // The app stops encoding while no viewer is connected, and a session that sat idle then sends 40% over its
+            // bitrate, so the next viewer gets a new session.
+            if count == 0 { self.videoQueue.async { self.encoder.reset() } }
             self.sendDebug(["event": "viewers", "port": Int(Self.port), "count": count])
             DispatchQueue.main.async {
                 self.status = count > 0 ? "Streaming to PC" : "Waiting for PC on port \(Self.port)"
