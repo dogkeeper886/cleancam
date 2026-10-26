@@ -8,7 +8,7 @@ CleanCam sends only the camera's picture and the iPhone's microphone over the US
 
 CleanCam streams the back camera's frames instead of the screen, so the PC receives the clean picture.
 
-![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080, 20 to 30 fps and up to 10 Mbps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire or PulseAudio pipe source, the CleanCam microphone; and cat passes what apps play to the CleanCam speaker, a pipe sink, back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
+![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080, 20 to 30 fps and up to 10 Mbps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire or PulseAudio pipe source, the CleanCam microphone; and cat or parec passes what apps play on the CleanCam speaker back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
 
 - **Preview:** the phone shows the picture with a zoom slider, which switches lenses on phones with more than one. The zoom label turns yellow where the camera starts to upscale.
 - **Focus:** focus and exposure follow the largest face, or the center while no face shows. Tap the preview to hold them on a point; a long press hands them back.
@@ -50,15 +50,22 @@ The app needs **iOS 15 or later**; an iPhone 5 or 5c on iOS 10 runs [CleanCamLeg
 
 These phones were tested by hand over the USB cable, with the video, the microphone and the speaker in a video call:
 
-| Phone | iOS | App |
+| Phone | iOS | App | PC |
+|---|---|---|---|
+| iPhone 5 | 10.3.4 | CleanCamLegacy | Rocky Linux 9 with PipeWire, and Rocky Linux 8.10 with PulseAudio |
+| iPhone 7 | 15.8.8 | CleanCam | Rocky Linux 9 with PipeWire |
+| iPhone X | 16.7.16 | CleanCam | Rocky Linux 9 with PipeWire |
+
+| PC | Sound server | ffmpeg |
 |---|---|---|
-| iPhone 5 | 10.3.4 | CleanCamLegacy |
-| iPhone 7 | 15.8.8 | CleanCam |
-| iPhone X | 16.7.16 | CleanCam |
+| Rocky Linux 9, minor release not recorded | PipeWire, version not recorded | 5.1 or later, version not recorded |
+| Rocky Linux 8.10 | PulseAudio 14.0 | 4.4.8 |
+
+Other distributions and versions are untested. [`host-setup.md`](.claude/skills/developing-cleancam/reference/host-setup.md) lists every package version on the Rocky Linux 8.10 PC.
 
 ## Receive on the PC
 
-`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl`; on another sound server, the receiver runs video only.
+`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec`; on another sound server, the receiver runs video only.
 
 ![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera, the microphone and the speaker in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
 
