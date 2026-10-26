@@ -8,14 +8,15 @@ CleanCam sends only the camera's picture and the iPhone's microphone over the US
 
 CleanCam streams the back camera's frames instead of the screen, so the PC receives the clean picture.
 
-![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080, 20 to 30 fps and up to 10 Mbps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire or PulseAudio pipe source, the CleanCam microphone; and cat or parec passes what apps play on the CleanCam speaker back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
+![On the iPhone, the back camera and the microphone feed the CleanCam app, which encodes the video as H.264 at 1920x1080, 15 to 60 fps by the preset and up to 20 Mbps, converts the microphone to 48 kHz mono PCM, and serves them on TCP ports 5000 and 5001; on port 5002 it takes the PC's speaker sound and plays it on the loudspeaker. The USB cable, through usbmuxd and iproxy, carries all three ports both ways; over WiFi, the PC reaches the iPhone's IP directly. On the Linux PC, one ffmpeg decodes the video into v4l2loopback's /dev/video10, named CleanCam; another copies the microphone into a PipeWire or PulseAudio pipe source, the CleanCam microphone; and cat or parec passes what apps play on the CleanCam speaker back to the phone. Zoom, OBS or a browser picks CleanCam as the camera, the microphone and the speaker.](docs/images/stream-flow.png)
 
 - **Preview:** the phone shows the picture with a zoom slider, which switches lenses on phones with more than one. The zoom label turns yellow where the camera starts to upscale.
 - **Focus:** focus and exposure follow the largest face, or the center while no face shows. Tap the preview to hold them on a point; a long press hands them back.
 - **Lock:** holds focus, exposure and white balance, so the picture stays steady.
-- **Low light:** in a dark room the camera slows from 30 toward 20 fps for more light per frame, and turns on low-light boost where the phone has it.
-- **Bitrate:** the video starts at 10 Mbps, steps down while the PC falls behind, as on a weak WiFi link, and climbs back once it keeps up.
-- **Status:** a second line names the camera mode, the frame rate, the bitrate and what focus follows, such as `1080p · 30 fps · 10.0 Mbps · Face`.
+- **Presets:** the settings button picks what you stream for, and the app keeps the choice. **Call**, the default, runs at 20–30 fps for Zoom, Meet and Teams, which send 30. **Low light** runs at 15–30 fps for a brighter face in the dark. **OBS** runs at 30–60 fps for apps that keep every frame, on a phone with a 60 fps mode.
+- **Low light:** in a dark room the camera slows toward the bottom of its preset's frame rates for more light per frame, and turns on low-light boost where the phone has it.
+- **Bitrate:** the video starts at 10 Mbps, or 20 Mbps at 60 fps, steps down while the PC falls behind, as on a weak WiFi link, and climbs back once it keeps up.
+- **Status:** a second line names the preset, the camera mode, the frame rate, the bitrate and what focus follows, such as `Call · 1080p · 30 fps · 10.0 Mbps · Face`.
 - **Mute:** stops sending the microphone; the PC's CleanCam microphone goes silent. The button appears once the microphone is allowed.
 - **Speaker:** the loudspeaker plays whatever the video app sends to the CleanCam speaker, at the loudness the phone's volume buttons set.
 - **Echo cancellation:** the iPhone removes its loudspeaker's sound from the microphone, as in a phone call, so the others hear only you. Your voice sounds like a phone call too.
@@ -81,7 +82,7 @@ Open CleanCam on the iPhone and allow the camera, microphone and local network p
 - **Keep CleanCam open.** iOS stops the camera when the phone locks or the app leaves the screen. Use Screen off instead.
 - **Mirrored preview:** Zoom mirrors your own preview, so the picture looks flipped to you but reaches the others the right way round. Turn off Settings → Video → "Mirror my video" to see what they see.
 - **Check the sound:** `tools/mic-check.sh` records 5 s from the CleanCam microphone and plays it on the CleanCam speaker, so the phone plays back what its microphone heard.
-- **Debug the stream:** `nc 127.0.0.1 5003`, or the phone's IP over WiFi, prints one JSON line a second from the app: the frame rate, the target bitrate, the bits the encoder sent, the most sends a viewer had waiting, and the viewers per port. It adds a line for each event, such as the rate settings and what the encoder took of them, or a step down or up. Type `bitrate 10000000` to hold the bitrate, up to 100 Mbps, `auto` to hand it back to adaptation, or `keyframe` for a keyframe.
+- **Debug the stream:** `nc 127.0.0.1 5003`, or the phone's IP over WiFi, prints one JSON line a second from the app: the frame rate, the target bitrate, the bits the encoder sent, the most sends a viewer had waiting, and the viewers per port. It adds a line for each event, such as the preset and its camera mode, the rate settings and what the encoder took of them, or a step down or up. Type `bitrate 10000000` to hold the bitrate, up to 100 Mbps, `auto` to hand it back to adaptation, `keyframe` for a keyframe, or `preset call`, `preset lowlight` or `preset obs` to switch the preset as the settings sheet does.
 
 The receiver reads five settings from the environment:
 
@@ -113,7 +114,7 @@ A free Apple ID signs CleanCam for 7 days, counted from step 5. Once the 7 days 
 
 ## iPhone 5 and 5c
 
-The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls, ports and stream formats, so the receiver stays as it is, and it builds on Linux, in GitHub Actions or on your PC.
+The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls except the presets, and the same ports and stream formats, so the receiver stays as it is, and it builds on Linux, in GitHub Actions or on your PC.
 
 ![The Build workflow on GitHub builds an unsigned CleanCam-legacy.ipa on every push and publishes it with each release. On the Linux PC: 1, get the IPA with gh release download, or build it with tools/build-legacy.sh. On the iPhone 5 on iOS 10: 2, connect only this iPhone, plugged in directly, and tap Trust. On the PC: 3, sign and install CleanCam-legacy.ipa with plumesign. On the iPhone: 4, trust the developer under Device Management, with no Developer Mode. Then open CleanCam, which runs for 7 days.](docs/images/legacy-steps.png)
 

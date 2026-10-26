@@ -97,13 +97,15 @@ final class H264Encoder {
         session = nil
     }
 
-    /// Plans rate control and keyframes around the camera's top frame rate, and restarts the bitrate at its target.
+    /// Plans rate control and keyframes around the camera's top frame rate, and restarts the bitrate at its target unless
+    /// the debug port holds it. The next frame starts a new session, so the H.264 level the session picks as it starts
+    /// fits the new rate.
     func setFrameRate(_ rate: Int) {
         guard rate > 0, rate != frameRate else { return }
         frameRate = rate
-        bitRate = targetBitRate
+        if !isPinned { bitRate = targetBitRate }
         secondsWithoutBacklog = 0
-        applyRates(reason: "frameRate")
+        reset()
     }
 
     /// Holds the bitrate at `rate` until `unpin`, for the debug port.
