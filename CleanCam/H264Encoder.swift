@@ -5,7 +5,16 @@ import VideoToolbox
 /// The stream is always 1920x1080 so the PC's webcam never changes size; portrait frames get black bars.
 final class H264Encoder {
     var onEncoded: ((_ data: Data, _ isKeyframe: Bool) -> Void)?
+    /// Called on the video queue with each event the debug port reports: the rate settings and what the session took
+    /// of them, and each step down or up.
+    var onEvent: (([String: Any]) -> Void)?
 
+    /// The rate settings the debug port reports.
+    private static let reportedKeys = [
+        kVTCompressionPropertyKey_AverageBitRate, kVTCompressionPropertyKey_DataRateLimits,
+        kVTCompressionPropertyKey_ExpectedFrameRate, kVTCompressionPropertyKey_MaxKeyFrameInterval,
+        kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+    ]
     private static let width = 1920
     private static let height = 1080
     private static let startCode: [UInt8] = [0, 0, 0, 1]
@@ -25,6 +34,8 @@ final class H264Encoder {
     private(set) var frameRate = 30
     /// The bitrate the encoder aims for now, at or below the target.
     private(set) var bitRate = H264Encoder.targetAt30fps
+    /// Set by the debug port's `bitrate` command; adaptation leaves the bitrate alone until `unpin`.
+    private(set) var isPinned = false
     private var secondsWithoutBacklog = 0
     private var session: VTCompressionSession?
     private let ciContext = CIContext()
@@ -32,11 +43,25 @@ final class H264Encoder {
 
     private let lock = NSLock()
     private var keyframeRequested = false
+    private var outputBytes = 0
+    private var outputFrames = 0
+    private var outputKeyframes = 0
 
     func requestKeyframe() {
         lock.lock()
         keyframeRequested = true
         lock.unlock()
+    }
+
+    /// The bytes, frames and keyframes handed out since the last call.
+    func takeOutput() -> (bytes: Int, frames: Int, keyframes: Int) {
+        lock.lock()
+        let output = (bytes: outputBytes, frames: outputFrames, keyframes: outputKeyframes)
+        outputBytes = 0
+        outputFrames = 0
+        outputKeyframes = 0
+        lock.unlock()
+        return output
     }
 
     func encode(_ sampleBuffer: CMSampleBuffer) {
@@ -78,12 +103,26 @@ final class H264Encoder {
         frameRate = rate
         bitRate = targetBitRate
         secondsWithoutBacklog = 0
-        applyRates()
+        applyRates(reason: "frameRate")
+    }
+
+    /// Holds the bitrate at `rate` until `unpin`, for the debug port.
+    func pin(bitRate rate: Int) {
+        isPinned = true
+        bitRate = rate
+        applyRates(reason: "pin")
+    }
+
+    /// Hands the bitrate back to adaptation, from where it is.
+    func unpin() {
+        isPinned = false
+        secondsWithoutBacklog = 0
     }
 
     /// Called once a second with the most sends any client had waiting.
     /// Steps the bitrate down while a client falls behind, and back up after `recoverySeconds` without a backlog.
     func adapt(toBacklog backlog: Int) {
+        guard !isPinned else { return }
         var next = bitRate
         if backlog > Self.congestedBacklog {
             secondsWithoutBacklog = 0
@@ -98,8 +137,9 @@ final class H264Encoder {
             next = min(Int(Double(bitRate) / (1 - Self.step)), targetBitRate)
         }
         guard next != bitRate else { return }
+        let reason = next < bitRate ? "down" : "up"
         bitRate = next
-        applyRates()
+        applyRates(reason: reason)
     }
 
     private var targetBitRate: Int { Self.targetAt30fps * frameRate / 30 }
@@ -118,8 +158,32 @@ final class H264Encoder {
         ]
     }
 
-    private func applyRates() {
-        if let session { VTSessionSetProperties(session, propertyDictionary: rateProperties as CFDictionary) }
+    private func applyRates(reason: String) {
+        guard let session else { return }
+        let properties = rateProperties
+        let status = VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
+        report(properties, status: status, session: session, reason: reason)
+    }
+
+    /// Tells the debug port which rate settings were asked for, what VTSessionSetProperties returned, and what the
+    /// session reports back for each, since an encoder can leave out a setting it doesn't support.
+    private func report(_ properties: [CFString: Any], status: OSStatus, session: VTCompressionSession, reason: String) {
+        guard let onEvent else { return }
+        var asked: [String: Any] = [:]
+        var took: [String: Any] = [:]
+        for key in Self.reportedKeys {
+            asked[key as String] = properties[key]
+            var value: CFTypeRef?
+            let copyStatus = VTSessionCopyProperty(session, key: key, allocator: nil, valueOut: &value)
+            if copyStatus != noErr {
+                took[key as String] = "error \(copyStatus)"
+            } else if let value {
+                took[key as String] = JSONSerialization.isValidJSONObject([value]) ? value as Any : "\(value)"
+            } else {
+                took[key as String] = NSNull()
+            }
+        }
+        onEvent(["event": "rates", "reason": reason, "status": Int(status), "asked": asked, "took": took])
     }
 
     /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
@@ -164,7 +228,8 @@ final class H264Encoder {
             kVTCompressionPropertyKey_AllowFrameReordering: false,  // no B-frames, less delay
         ]
         properties.merge(rateProperties) { $1 }
-        VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
+        let status = VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
+        report(properties, status: status, session: session, reason: "start")
         VTCompressionSessionPrepareToEncodeFrames(session)
         return session
     }
@@ -199,6 +264,11 @@ final class H264Encoder {
             output.append(Self.parameterSets(of: format))
         }
         output.append(nalUnits)
+        lock.lock()
+        outputBytes += output.count
+        outputFrames += 1
+        if isKeyframe { outputKeyframes += 1 }
+        lock.unlock()
         onEncoded?(output, isKeyframe)
     }
 

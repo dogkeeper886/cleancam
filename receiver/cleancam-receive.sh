@@ -10,6 +10,7 @@ set -euo pipefail
 PORT=${PORT:-5000}                  # TCP port the app sends video on
 AUDIO_PORT=${AUDIO_PORT:-5001}      # TCP port the app sends microphone audio on
 SPEAKER_PORT=${SPEAKER_PORT:-5002}  # TCP port the app plays speaker audio from
+DEBUG_PORT=${DEBUG_PORT:-5003}      # TCP port of the app's debug stats and commands; the receiver only forwards it
 VIDEO_NR=${VIDEO_NR:-10}            # webcam device number: /dev/video$VIDEO_NR
 VIDEO=/dev/video$VIDEO_NR
 HOST=${1:-}
@@ -36,7 +37,7 @@ if [[ -z $HOST ]]; then
   # iproxy forwards each localhost port to the app's port through the USB cable; tools/iproxy.sh runs it in a
   # container where the host lacks it.
   "$(dirname "$0")/../tools/iproxy.sh" "$PORT:$PORT" "$AUDIO_PORT:$AUDIO_PORT" "$SPEAKER_PORT:$SPEAKER_PORT" \
-    >/dev/null &
+    "$DEBUG_PORT:$DEBUG_PORT" >/dev/null &
   HOST=127.0.0.1
 fi
 

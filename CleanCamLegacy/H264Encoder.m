@@ -28,6 +28,9 @@ static const double kFloorShare = 0.2;
 
     NSLock *_lock;
     BOOL _keyframeRequested;
+    int _outputBytes;
+    int _outputFrames;
+    int _outputKeyframes;
 }
 
 - (instancetype)init {
@@ -48,6 +51,20 @@ static const double kFloorShare = 0.2;
     [_lock lock];
     _keyframeRequested = YES;
     [_lock unlock];
+}
+
+- (NSDictionary *)takeOutput {
+    [_lock lock];
+    NSDictionary *output = @{@"out": @(_outputBytes * 8), @"encoded": @(_outputFrames), @"keyframes": @(_outputKeyframes)};
+    _outputBytes = 0;
+    _outputFrames = 0;
+    _outputKeyframes = 0;
+    [_lock unlock];
+    return output;
+}
+
+- (int)topFrameRate {
+    return _frameRate;
 }
 
 - (void)encode:(CMSampleBufferRef)sampleBuffer {
@@ -94,10 +111,22 @@ static const double kFloorShare = 0.2;
     _frameRate = frameRate;
     _bitRate = [self targetBitRate];
     _secondsWithoutBacklog = 0;
-    [self applyRates];
+    [self applyRatesFor:@"frameRate"];
+}
+
+- (void)pinBitRate:(int)bitRate {
+    _isPinned = YES;
+    _bitRate = bitRate;
+    [self applyRatesFor:@"pin"];
+}
+
+- (void)unpin {
+    _isPinned = NO;
+    _secondsWithoutBacklog = 0;
 }
 
 - (void)adaptToBacklog:(int)backlog {
+    if (_isPinned) return;
     int next = _bitRate;
     if (backlog > kCongestedBacklog) {
         _secondsWithoutBacklog = 0;
@@ -112,8 +141,9 @@ static const double kFloorShare = 0.2;
         next = MIN((int)(_bitRate / (1 - kStep)), [self targetBitRate]);
     }
     if (next == _bitRate) return;
+    NSString *reason = next < _bitRate ? @"down" : @"up";
     _bitRate = next;
-    [self applyRates];
+    [self applyRatesFor:reason];
 }
 
 - (int)targetBitRate {
@@ -133,8 +163,40 @@ static const double kFloorShare = 0.2;
     };
 }
 
-- (void)applyRates {
-    if (_session) VTSessionSetProperties(_session, (__bridge CFDictionaryRef)[self rateProperties]);
+- (void)applyRatesFor:(NSString *)reason {
+    if (!_session) return;
+    NSDictionary *properties = [self rateProperties];
+    OSStatus status = VTSessionSetProperties(_session, (__bridge CFDictionaryRef)properties);
+    [self report:properties status:status session:_session reason:reason];
+}
+
+/// Tells the debug port which rate settings were asked for, what VTSessionSetProperties returned, and what the
+/// session reports back for each, since an encoder can leave out a setting it doesn't support.
+- (void)report:(NSDictionary *)properties status:(OSStatus)status session:(VTCompressionSessionRef)session
+        reason:(NSString *)reason {
+    if (!self.onEvent) return;
+    NSMutableDictionary *asked = [NSMutableDictionary dictionary];
+    NSMutableDictionary *took = [NSMutableDictionary dictionary];
+    for (NSString *key in @[
+             (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate,
+             (__bridge NSString *)kVTCompressionPropertyKey_DataRateLimits,
+             (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate,
+             (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameInterval,
+             (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+         ]) {
+        if (properties[key]) asked[key] = properties[key];
+        CFTypeRef value = NULL;
+        OSStatus copyStatus = VTSessionCopyProperty(session, (__bridge CFStringRef)key, NULL, &value);
+        id object = CFBridgingRelease(value);
+        if (copyStatus != noErr) {
+            took[key] = [NSString stringWithFormat:@"error %d", (int)copyStatus];
+        } else if (object) {
+            took[key] = [NSJSONSerialization isValidJSONObject:@[object]] ? object : [object description];
+        } else {
+            took[key] = [NSNull null];
+        }
+    }
+    self.onEvent(@{@"event": @"rates", @"reason": reason, @"status": @(status), @"asked": asked, @"took": took});
 }
 
 /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
@@ -178,7 +240,8 @@ static const double kFloorShare = 0.2;
         (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering: @NO,  // no B-frames, less delay
     } mutableCopy];
     [properties addEntriesFromDictionary:[self rateProperties]];
-    VTSessionSetProperties(session, (__bridge CFDictionaryRef)properties);
+    OSStatus status = VTSessionSetProperties(session, (__bridge CFDictionaryRef)properties);
+    [self report:properties status:status session:session reason:@"start"];
     VTCompressionSessionPrepareToEncodeFrames(session);
     return session;
 }
@@ -212,6 +275,11 @@ static const double kFloorShare = 0.2;
     CMFormatDescriptionRef format = CMSampleBufferGetFormatDescription(sampleBuffer);
     if (isKeyframe && format) [output appendData:[H264Encoder parameterSetsOf:format]];
     [output appendData:nalUnits];
+    [_lock lock];
+    _outputBytes += (int)output.length;
+    _outputFrames += 1;
+    if (isKeyframe) _outputKeyframes += 1;
+    [_lock unlock];
     if (self.onEncoded) self.onEncoded(output, isKeyframe);
 }
 

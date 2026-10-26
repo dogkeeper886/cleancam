@@ -7,6 +7,10 @@
 static const uint16_t kPort = 5000;
 static const uint16_t kAudioPort = 5001;
 static const uint16_t kSpeakerPort = 5002;
+static const uint16_t kDebugPort = 5003;
+/// The highest bitrate the debug port's bitrate command holds: far above what the encoder sends, and low enough that
+/// the encoder's rate math can't overflow an int.
+static const int kMaxPinnedBitRate = 100000000;
 /// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
 static const int kTopFrameRate = 30;
 static const int kBottomFrameRate = 20;
@@ -110,6 +114,9 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     StreamServer *_server;
     StreamServer *_audioServer;
     StreamServer *_speakerServer;
+    StreamServer *_debugServer;
+    // Used on the debug server's queue only.
+    NSMutableData *_debugInput;
     // Used on _sessionQueue only.
     AVCaptureDevice *_device;
     AVCaptureVideoOrientation _videoOrientation;
@@ -143,6 +150,8 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     _server = [[StreamServer alloc] initWithPort:kPort];
     _audioServer = [[StreamServer alloc] initWithPort:kAudioPort];
     _speakerServer = [[StreamServer alloc] initWithPort:kSpeakerPort];
+    _debugServer = [[StreamServer alloc] initWithPort:kDebugPort];
+    _debugInput = [NSMutableData data];
     _videoOrientation = AVCaptureVideoOrientationLandscapeRight;
     _facePoint = CGPointMake(0.5, 0.5);
 
@@ -165,6 +174,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     _server.onClientsChanged = ^(NSUInteger count) {
         // A new viewer can only start decoding at a keyframe.
         if (count > 0) [encoder requestKeyframe];
+        [weakSelf sendDebug:@{@"event": @"viewers", @"port": @(kPort), @"count": @(count)}];
         dispatch_async(dispatch_get_main_queue(), ^{
             CameraController *strongSelf = weakSelf;
             strongSelf.status = count > 0
@@ -172,6 +182,18 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
                 : [NSString stringWithFormat:@"Waiting for PC on port %u", kPort];
             [strongSelf changed];
         });
+    };
+    _audioServer.onClientsChanged = ^(NSUInteger count) {
+        [weakSelf sendDebug:@{@"event": @"viewers", @"port": @(kAudioPort), @"count": @(count)}];
+    };
+    _speakerServer.onClientsChanged = ^(NSUInteger count) {
+        [weakSelf sendDebug:@{@"event": @"viewers", @"port": @(kSpeakerPort), @"count": @(count)}];
+    };
+    _encoder.onEvent = ^(NSDictionary *event) {
+        [weakSelf sendDebug:event];
+    };
+    _debugServer.onReceive = ^(NSData *data) {
+        [weakSelf receiveDebug:data];
     };
     return self;
 }
@@ -186,6 +208,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     [_server start];
     [_audioServer start];
     [_speakerServer start];
+    [_debugServer start];
     [self startFrameCounter];
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
         if (!granted) {
@@ -217,6 +240,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     [_server stop];
     [_audioServer stop];
     [_speakerServer stop];
+    [_debugServer stop];
     [_callAudio stop];
     dispatch_async(_sessionQueue, ^{ [self->_session stopRunning]; });
     dispatch_async(_videoQueue, ^{
@@ -390,7 +414,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     });
 }
 
-/// Counts the frames the camera delivers each second, for the status line,
+/// Counts the frames the camera delivers each second, for the status line and the debug port,
 /// and adapts the encoder's bitrate to how far the PC fell behind in that second.
 - (void)startFrameCounter {
     dispatch_async(_videoQueue, ^{
@@ -403,8 +427,20 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
             if (!strongSelf) return;
             int frames = strongSelf->_framesThisSecond;
             strongSelf->_framesThisSecond = 0;
-            [strongSelf->_encoder adaptToBacklog:[strongSelf->_server takePeakBacklog]];
-            int bitRate = strongSelf->_encoder.bitRate;
+            int backlog = [strongSelf->_server takePeakBacklog];
+            H264Encoder *encoder = strongSelf->_encoder;
+            [encoder adaptToBacklog:backlog];
+            int bitRate = encoder.bitRate;
+            NSMutableDictionary *second = [[encoder takeOutput] mutableCopy];
+            [second addEntriesFromDictionary:@{
+                @"event": @"second", @"fps": @(frames), @"topFps": @(encoder.topFrameRate), @"target": @(bitRate),
+                @"pinned": @(encoder.isPinned), @"backlog": @(backlog),
+                @"viewers": @{
+                    @"video": @(strongSelf->_server.connectionCount), @"mic": @(strongSelf->_audioServer.connectionCount),
+                    @"speaker": @(strongSelf->_speakerServer.connectionCount),
+                },
+            }];
+            [strongSelf sendDebug:second];
             dispatch_async(dispatch_get_main_queue(), ^{
                 strongSelf.frameRate = frames;
                 strongSelf.bitRate = bitRate;
@@ -414,6 +450,56 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
         dispatch_resume(timer);
         self->_frameTimer = timer;
     });
+}
+
+/// Sends one JSON line, stamped with the phone's uptime, to every client of the debug port. Called on any queue.
+- (void)sendDebug:(NSDictionary *)event {
+    if (!_debugServer.hasClients) return;
+    NSMutableDictionary *line = [event mutableCopy];
+    line[@"t"] = @(round([NSProcessInfo processInfo].systemUptime * 1000) / 1000);
+    if (![NSJSONSerialization isValidJSONObject:line]) return;
+    NSMutableData *data = [[NSJSONSerialization dataWithJSONObject:line options:0 error:nil] mutableCopy];
+    if (!data) return;
+    [data appendBytes:"\n" length:1];
+    [_debugServer broadcast:data isKeyframe:YES];
+}
+
+/// Called on the debug server's queue with what a debug client typed: one command per line.
+- (void)receiveDebug:(NSData *)data {
+    [_debugInput appendData:data];
+    NSData *newlineData = [NSData dataWithBytes:"\n" length:1];
+    while (YES) {
+        NSRange newline = [_debugInput rangeOfData:newlineData options:0 range:NSMakeRange(0, _debugInput.length)];
+        if (newline.location == NSNotFound) break;
+        NSString *line = [[NSString alloc] initWithData:[_debugInput subdataWithRange:NSMakeRange(0, newline.location)]
+                                               encoding:NSUTF8StringEncoding];
+        [_debugInput replaceBytesInRange:NSMakeRange(0, newline.location + 1) withBytes:NULL length:0];
+        line = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (line.length) [self runDebugCommand:line];
+    }
+    // A client that never ends a line can't grow the buffer without bound.
+    if (_debugInput.length > 1024) _debugInput.length = 0;
+}
+
+/// Runs a debug command: "bitrate N" holds the bitrate at N bits per second, "auto" hands it back to adaptation,
+/// and "keyframe" asks for a keyframe.
+- (void)runDebugCommand:(NSString *)line {
+    NSArray<NSString *> *words = [[line componentsSeparatedByString:@" "]
+        filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    H264Encoder *encoder = _encoder;
+    BOOL ok = YES;
+    if (words.count == 2 && [words[0] isEqualToString:@"bitrate"] && words[1].intValue > 0 &&
+        words[1].intValue <= kMaxPinnedBitRate) {
+        int bitRate = words[1].intValue;
+        dispatch_async(_videoQueue, ^{ [encoder pinBitRate:bitRate]; });
+    } else if (words.count == 1 && [words[0] isEqualToString:@"auto"]) {
+        dispatch_async(_videoQueue, ^{ [encoder unpin]; });
+    } else if (words.count == 1 && [words[0] isEqualToString:@"keyframe"]) {
+        [encoder requestKeyframe];
+    } else {
+        ok = NO;
+    }
+    [self sendDebug:@{@"event": @"command", @"command": line, @"ok": @(ok)}];
 }
 
 /// Called on _sessionQueue.
