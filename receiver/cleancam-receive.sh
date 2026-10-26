@@ -152,10 +152,12 @@ MESSAGE="Writing the CleanCam stream from $HOST:$PORT to $VIDEO"
 [[ $SOUND ]] && MESSAGE+=", its sound to the CleanCam microphone, and the CleanCam speaker to the phone"
 echo "$MESSAGE. Ctrl-C to stop."
 # ffmpeg detects H.264 or HEVC as it connects; the app drops the connection when the codec changes, and the loop
-# connects again.
+# connects again. ffmpeg analyzes the stream's start before it decodes: -fflags nobuffer dropped the frames it
+# analyzed, 2 s with ffmpeg 7.1 and 5 s with 4.4, and an HEVC stream then started at frames whose references were gone.
+# A 0.1 s analysis keeps every frame and shows the first one about 0.1 s after the connection.
 while true; do
   ffmpeg -hide_banner -loglevel warning \
-    -fflags nobuffer -flags low_delay "${FRAME_RATE[@]}" -i "tcp://$HOST:$PORT" \
+    -analyzeduration 100000 -flags low_delay "${FRAME_RATE[@]}" -i "tcp://$HOST:$PORT" \
     "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" || true
   sleep 1  # the app is closed or not reachable yet; try again
 done
