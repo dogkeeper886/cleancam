@@ -12,6 +12,9 @@ final class CameraController: NSObject, ObservableObject {
     static let audioPort: UInt16 = 5001
     static let speakerPort: UInt16 = 5002
     static let debugPort: UInt16 = 5003
+    /// The highest bitrate the debug port's `bitrate` command holds: far above what the encoder sends, and low enough
+    /// that the encoder's rate math can't overflow.
+    private static let maxPinnedBitRate = 100_000_000
     /// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
     static let frameRates = 20...30
     /// How long focus stays on a face that left the picture before it returns to the center, in seconds.
@@ -420,7 +423,7 @@ final class CameraController: NSObject, ObservableObject {
         let words = line.split(separator: " ").map(String.init)
         var ok = true
         switch words.first {
-        case "bitrate"? where words.count == 2 && (Int(words[1]) ?? 0) > 0:
+        case "bitrate"? where words.count == 2 && (1...Self.maxPinnedBitRate).contains(Int(words[1]) ?? 0):
             let rate = Int(words[1])!
             videoQueue.async { self.encoder.pin(bitRate: rate) }
         case "auto"? where words.count == 1:

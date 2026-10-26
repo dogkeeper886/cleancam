@@ -8,6 +8,9 @@ static const uint16_t kPort = 5000;
 static const uint16_t kAudioPort = 5001;
 static const uint16_t kSpeakerPort = 5002;
 static const uint16_t kDebugPort = 5003;
+/// The highest bitrate the debug port's bitrate command holds: far above what the encoder sends, and low enough that
+/// the encoder's rate math can't overflow an int.
+static const int kMaxPinnedBitRate = 100000000;
 /// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
 static const int kTopFrameRate = 30;
 static const int kBottomFrameRate = 20;
@@ -485,7 +488,8 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
         filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
     H264Encoder *encoder = _encoder;
     BOOL ok = YES;
-    if (words.count == 2 && [words[0] isEqualToString:@"bitrate"] && words[1].intValue > 0) {
+    if (words.count == 2 && [words[0] isEqualToString:@"bitrate"] && words[1].intValue > 0 &&
+        words[1].intValue <= kMaxPinnedBitRate) {
         int bitRate = words[1].intValue;
         dispatch_async(_videoQueue, ^{ [encoder pinBitRate:bitRate]; });
     } else if (words.count == 1 && [words[0] isEqualToString:@"auto"]) {

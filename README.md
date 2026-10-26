@@ -81,7 +81,7 @@ Open CleanCam on the iPhone and allow the camera, microphone and local network p
 - **Keep CleanCam open.** iOS stops the camera when the phone locks or the app leaves the screen. Use Screen off instead.
 - **Mirrored preview:** Zoom mirrors your own preview, so the picture looks flipped to you but reaches the others the right way round. Turn off Settings → Video → "Mirror my video" to see what they see.
 - **Check the sound:** `tools/mic-check.sh` records 5 s from the CleanCam microphone and plays it on the CleanCam speaker, so the phone plays back what its microphone heard.
-- **Debug the stream:** `nc 127.0.0.1 5003`, or the phone's IP over WiFi, prints one JSON line a second from the app: the frame rate, the target bitrate, the bits the encoder sent, the most sends a viewer had waiting, and the viewers per port. It adds a line for each event, such as the rate settings and what the encoder took of them, or a step down or up. Type `bitrate 10000000` to hold the bitrate, `auto` to hand it back to adaptation, or `keyframe` for a keyframe.
+- **Debug the stream:** `nc 127.0.0.1 5003`, or the phone's IP over WiFi, prints one JSON line a second from the app: the frame rate, the target bitrate, the bits the encoder sent, the most sends a viewer had waiting, and the viewers per port. It adds a line for each event, such as the rate settings and what the encoder took of them, or a step down or up. Type `bitrate 10000000` to hold the bitrate, up to 100 Mbps, `auto` to hand it back to adaptation, or `keyframe` for a keyframe.
 
 The receiver reads five settings from the environment:
 
