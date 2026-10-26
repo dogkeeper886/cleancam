@@ -92,7 +92,7 @@
   <text class="sub" x="590" y="472" text-anchor="middle">copies the PCM</text>
 
   <rect class="box" x="492" y="496" width="196" height="52" rx="8"/>
-  <text class="title" x="590" y="518" text-anchor="middle">cat</text>
+  <text class="title" x="590" y="518" text-anchor="middle">cat or parec</text>
   <text class="sub" x="590" y="536" text-anchor="middle">passes the PCM on</text>
 
   <rect class="box" x="264" y="368" width="196" height="52" rx="8"/>

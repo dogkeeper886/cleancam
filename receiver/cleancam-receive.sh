@@ -4,7 +4,7 @@
 #   cleancam-receive.sh             iPhone on USB (needs usbmuxd running and iproxy)
 #   cleancam-receive.sh PHONE_IP    iPhone on the same WiFi
 # Needs ffmpeg and the v4l2loopback kernel module; the microphone and the speaker need PipeWire (pw-cli)
-# or PulseAudio (pactl).
+# or PulseAudio (pactl and parec).
 set -euo pipefail
 
 PORT=${PORT:-5000}                  # TCP port the app sends video on
@@ -48,27 +48,27 @@ pipe_tunnel() {  # MODE FIFO NODE_NAME
     stream.props = { node.name = $3 node.description = CleanCam node.always-process = true } }" >/dev/null &
 }
 
-# Loads PulseAudio's pipe module of the same kind: a source reads the FIFO, a sink writes what apps play into it.
-# The sink keeps time by the system clock, so it plays at the apps' pace while the phone is away.
-pulse_pipe() {  # source|sink FIFO NAME
-  local timing=()
-  [[ $1 == sink ]] && timing=(use_system_clock_for_timing=yes)
-  rm -f "$2"  # PulseAudio makes the FIFO itself
+# Loads a PulseAudio module and keeps its number for the cleanup.
+pulse_load() {  # MODULE ARGUMENT...
   local module
-  if module=$(pactl load-module "module-pipe-$1" "$1_name=$3" file="$2" format=s16le rate=48000 \
-      channels=1 channel_map=mono "$1_properties=device.description=CleanCam" "${timing[@]}"); then
-    PULSE_MODULES+=("$module")
-  fi
+  if module=$(pactl load-module "$@"); then PULSE_MODULES+=("$module"); fi
 }
 
 MIC_FIFO=${XDG_RUNTIME_DIR:-/tmp}/cleancam-mic-$AUDIO_PORT.fifo
 SPEAKER_FIFO=${XDG_RUNTIME_DIR:-/tmp}/cleancam-speaker-$SPEAKER_PORT.fifo
-SOUND=yes
 # PulseAudio names itself "pulseaudio"; PipeWire's PulseAudio service names itself "PulseAudio (on PipeWire ...)".
 if [[ $(pactl info 2>/dev/null || true) == *"Server Name: pulseaudio"* ]]; then
-  pulse_pipe source "$MIC_FIFO" cleancam-mic
-  pulse_pipe sink "$SPEAKER_FIFO" cleancam-speaker
+  SOUND=pulseaudio
+  # The microphone is a pipe source, which reads the FIFO. The speaker is a null sink, which keeps the system
+  # clock's pace, and parec hands its sound on every 10 ms. PulseAudio's pipe sink writes 43 ms at once instead,
+  # too coarse for the phone's 80 ms queue, which then cuts and gaps the sound into a buzz.
+  rm -f "$MIC_FIFO"  # the pipe source makes the FIFO itself
+  pulse_load module-pipe-source source_name=cleancam-mic file="$MIC_FIFO" format=s16le rate=48000 channels=1 \
+    channel_map=mono source_properties=device.description=CleanCam
+  pulse_load module-null-sink sink_name=cleancam-speaker format=s16le rate=48000 channels=1 channel_map=mono \
+    sink_properties=device.description=CleanCam
 elif command -v pw-cli >/dev/null; then
+  SOUND=pipewire
   pipe_tunnel source "$MIC_FIFO" cleancam-mic
   pipe_tunnel sink "$SPEAKER_FIFO" cleancam-speaker
 else
@@ -86,8 +86,11 @@ if [[ $SOUND ]]; then
     sleep 1  # the app is closed or not reachable yet, or the microphone is starting; try again
   done &
   while true; do
-    # cat passes the sound on as soon as it arrives. The sink writes whole samples, so every read is too.
-    if [[ -p $SPEAKER_FIFO ]]; then
+    if [[ $SOUND == pulseaudio ]]; then
+      parec -d cleancam-speaker.monitor --latency-msec=10 --format=s16le --rate=48000 --channels=1 --raw \
+        >"/dev/tcp/$HOST/$SPEAKER_PORT" || true
+    elif [[ -p $SPEAKER_FIFO ]]; then
+      # cat passes the sound on as soon as it arrives. The tunnel writes whole samples, so every read is too.
       cat "$SPEAKER_FIFO" 2>/dev/null >"/dev/tcp/$HOST/$SPEAKER_PORT" || true
     fi
     sleep 1  # the app is closed or not reachable yet, or the speaker is starting; try again
