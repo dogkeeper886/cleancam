@@ -114,7 +114,10 @@ FROM docker.io/library/ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends libimobiledevice-utils libusbmuxd-tools \
     && rm -rf /var/lib/apt/lists/*
 EOF
-idevice() { docker run --rm -i --network host --security-opt label=disable -v /run/usbmuxd:/run/usbmuxd cleancam-idevice "$@"; }
+idevice() {
+  docker run --rm -i --network host --security-opt label=disable \
+    --mount type=bind,source=/run/usbmuxd,target=/run/usbmuxd cleancam-idevice "$@"
+}
 idevice idevicepair validate
 ```
 
