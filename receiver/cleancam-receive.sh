@@ -29,12 +29,14 @@ if [[ ! -e $VIDEO ]]; then
 fi
 
 if [[ -z $HOST ]]; then
-  if ! command -v iproxy >/dev/null; then
-    echo "iproxy not found: install libusbmuxd's tools, or forward the ports another way and pass 127.0.0.1." >&2
+  if ! command -v iproxy >/dev/null && ! command -v podman >/dev/null && ! command -v docker >/dev/null; then
+    echo "iproxy not found: install libusbmuxd's tools, or podman or docker to run it in a container." >&2
     exit 1
   fi
-  # iproxy forwards each localhost port to the app's port through the USB cable.
-  iproxy "$PORT:$PORT" "$AUDIO_PORT:$AUDIO_PORT" "$SPEAKER_PORT:$SPEAKER_PORT" >/dev/null &
+  # iproxy forwards each localhost port to the app's port through the USB cable; tools/iproxy.sh runs it in a
+  # container where the host lacks it.
+  "$(dirname "$0")/../tools/iproxy.sh" "$PORT:$PORT" "$AUDIO_PORT:$AUDIO_PORT" "$SPEAKER_PORT:$SPEAKER_PORT" \
+    >/dev/null &
   HOST=127.0.0.1
 fi
 

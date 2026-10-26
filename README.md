@@ -65,7 +65,7 @@ Other distributions and versions are untested. [`host-setup.md`](.claude/skills/
 
 ## Receive on the PC
 
-`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd), ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec`; on another sound server, the receiver runs video only.
+`receiver/cleancam-receive.sh` turns the stream into the "CleanCam" webcam, microphone and speaker. It needs usbmuxd, `iproxy` (libusbmuxd) or podman or docker to run it in a container, ffmpeg and the v4l2loopback kernel module. The microphone and the speaker also need PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec`; on another sound server, the receiver runs video only.
 
 ![On the Linux PC: 1, start the receiver, adding the iPhone's IP for WiFi. On the iPhone: 2, open CleanCam and allow its permission prompts; its status turns to Streaming to PC. On the PC: 3, pick CleanCam as the camera, the microphone and the speaker in the video app. On the iPhone: 4, keep CleanCam open, using Screen off instead of locking.](docs/images/receive-steps.png)
 
