@@ -108,8 +108,9 @@ final class H264Encoder {
     private var rateProperties: [CFString: Any] {
         [
             kVTCompressionPropertyKey_AverageBitRate: bitRate,
-            // Caps any one second at 1.5 times the average, in bytes, so a burst can't swamp the link.
-            kVTCompressionPropertyKey_DataRateLimits: [bitRate * 3 / 2 / 8, 1] as CFArray,
+            // In bytes: any one second at 1.5 times the average, so a burst can't swamp the link, and any 5 s at the
+            // average itself, which the iPhone 7's encoder overshoots by 40% under AverageBitRate alone.
+            kVTCompressionPropertyKey_DataRateLimits: [bitRate * 3 / 2 / 8, 1, bitRate / 8 * 5, 5] as CFArray,
             kVTCompressionPropertyKey_ExpectedFrameRate: frameRate,
             // A keyframe every 2 s, also while the camera slows in the dark.
             kVTCompressionPropertyKey_MaxKeyFrameInterval: frameRate * 2,
