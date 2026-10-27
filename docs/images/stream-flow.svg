@@ -54,7 +54,7 @@
 
   <rect class="box key" x="264" y="52" width="424" height="180" rx="8"/>
   <text class="title" x="476" y="124" text-anchor="middle">CleanCam app</text>
-  <text class="sub" x="476" y="146" text-anchor="middle">video: H.264 or HEVC · 1920x1080 · 15–60 fps · up to 20 Mbps</text>
+  <text class="sub" x="476" y="146" text-anchor="middle">video: H.264 or HEVC · 1080p or 4K · 15–60 fps · up to 40 Mbps</text>
   <text class="sub" x="476" y="164" text-anchor="middle">microphone: PCM · 48 kHz · mono</text>
   <text class="sub" x="476" y="182" text-anchor="middle">speaker: PCM · 48 kHz · mono</text>
 

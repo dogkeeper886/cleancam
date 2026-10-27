@@ -26,6 +26,8 @@ Find the symptom, apply the fix, then resume at the step that failed.
 | The app won't open: "Untrusted Developer" | First install from this Apple ID | Settings → General → VPN & Device Management → Trust |
 | The app stopped opening after about a week | Free Apple ID signing lasts 7 days | Reinstall with step 13 of `SKILL.md` |
 | The video app lists no "CleanCam" camera | `exclusive_caps=1` lists the device only while ffmpeg writes to it | Start the receiver and the app, then restart the video app |
+| The receiver keeps failing to open `/dev/video10`, which does not exist, while `/sys/class/video4linux/video0/name` reads "OBS Virtual Camera" | OBS loaded v4l2loopback first, and the receiver's `modprobe` changes nothing on a loaded module | Add the device next to OBS's with `sudo v4l2loopback-ctl add -n CleanCam -x 1 /dev/video10`; it lasts until the next reboot |
+| The video app's picture freezes after a switch to or from the 4K preset, or when the phone gets hot in 4K | The webcam changed size, and v4l2loopback holds an open reader at the old size | Pick the camera again in the video app, or restart it |
 | The video app lists no "CleanCam" microphone or speaker | The receiver is not running, or it printed `Neither PipeWire (pw-cli) nor PulseAudio found` | Start the receiver; install PipeWire's or PulseAudio's tools from `host-setup.md` |
 | The receiver prints `iproxy not found` | The PC has neither libusbmuxd's tools nor podman or docker | Install either from `host-setup.md`; `tools/iproxy.sh` runs iproxy in a container when the PC lacks it |
 | The iPhone plays no sound | The video app's speaker is not "CleanCam", or the phone's volume is down | Pick "CleanCam" as the speaker; raise the volume with the phone's buttons while CleanCam is open |

@@ -3,7 +3,8 @@ import VideoToolbox
 
 /// Hardware H.264 or HEVC encoder. Hands out each frame as an Annex-B byte stream, which ffmpeg reads as raw H.264 or
 /// HEVC.
-/// The stream is always 1920x1080 so the PC's webcam never changes size; portrait frames get black bars.
+/// The stream has the camera mode's landscape size, 1920x1080 or 3840x2160 in 4K, so the PC's webcam keeps its size
+/// as the phone turns; portrait frames get black bars.
 final class H264Encoder {
     var onEncoded: ((_ data: Data, _ isKeyframe: Bool) -> Void)?
     /// Called on the video queue with each event the debug port reports: the rate settings and what the session took
@@ -16,11 +17,11 @@ final class H264Encoder {
         kVTCompressionPropertyKey_ExpectedFrameRate, kVTCompressionPropertyKey_MaxKeyFrameInterval,
         kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
     ]
-    private static let width = 1920
-    private static let height = 1080
     private static let startCode: [UInt8] = [0, 0, 0, 1]
-    /// The target bitrate at 30 fps, about 0.16 bits per pixel in each frame; the target scales with the frame rate.
+    /// The target bitrate at 1920x1080 and 30 fps, about 0.16 bits per pixel in each frame; the target scales with the
+    /// frame rate and the pixels.
     private static let targetAt30fps = 10_000_000
+    private static let pixelsAt1080p = 1920 * 1080
     /// A backlog past this many sends, of the server's 30, means the link carries less than the stream sends.
     private static let congestedBacklog = 10
     /// Seconds without any backlog before the bitrate steps back up.
@@ -38,6 +39,11 @@ final class H264Encoder {
     /// Set by the debug port's `bitrate` command; adaptation leaves the bitrate alone until `unpin`.
     private(set) var isPinned = false
     private var codec = kCMVideoCodecType_H264
+    private var width = 1920
+    private var height = 1080
+    /// The heat guard's share of the usual target, and the lowest of the heat guard's and the user's highest bitrates.
+    private var limitShare = 1.0
+    private var limitBitRate: Int?
     private var secondsWithoutBacklog = 0
     private var session: VTCompressionSession?
     private let ciContext = CIContext()
@@ -119,6 +125,31 @@ final class H264Encoder {
         return true
     }
 
+    /// Encodes `width` x `height` frames from the next frame on, in a new session, and restarts the bitrate at its
+    /// target unless the debug port holds it. Returns whether the size changed.
+    func setSize(width: Int, height: Int) -> Bool {
+        guard width != self.width || height != self.height else { return false }
+        self.width = width
+        self.height = height
+        letterboxPool = nil
+        if !isPinned { bitRate = targetBitRate }
+        secondsWithoutBacklog = 0
+        reset()
+        return true
+    }
+
+    /// Aims for `share` of the usual target, at most `maxBitRate`, and restarts the bitrate at the new target unless the
+    /// debug port holds it. A running session takes it live.
+    func setLimit(share: Double, maxBitRate: Int?) {
+        guard share != limitShare || maxBitRate != limitBitRate else { return }
+        limitShare = share
+        limitBitRate = maxBitRate
+        guard !isPinned else { return }
+        bitRate = targetBitRate
+        secondsWithoutBacklog = 0
+        applyRates(reason: "limit")
+    }
+
     /// Holds the bitrate at `rate` until `unpin`, for the debug port.
     func pin(bitRate rate: Int) {
         isPinned = true
@@ -155,7 +186,10 @@ final class H264Encoder {
         applyRates(reason: reason)
     }
 
-    private var targetBitRate: Int { Self.targetAt30fps * frameRate / 30 }
+    private var targetBitRate: Int {
+        let usual = Self.targetAt30fps * frameRate / 30 * (width * height) / Self.pixelsAt1080p
+        return min(Int(Double(usual) * limitShare), limitBitRate ?? usual)
+    }
 
     /// The settings that follow the frame rate and the bitrate; a running session takes new ones live.
     private var rateProperties: [CFString: Any] {
@@ -199,16 +233,16 @@ final class H264Encoder {
         onEvent(["event": "rates", "reason": reason, "status": Int(status), "asked": asked, "took": took])
     }
 
-    /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black 1920x1080 frame.
+    /// Scales a frame of any other size (mainly a portrait frame) into the middle of a black frame of the stream's size.
     private func fitToStream(_ source: CVPixelBuffer) -> CVPixelBuffer? {
-        if CVPixelBufferGetWidth(source) == Self.width && CVPixelBufferGetHeight(source) == Self.height {
+        if CVPixelBufferGetWidth(source) == width && CVPixelBufferGetHeight(source) == height {
             return source
         }
         if letterboxPool == nil {
             let attributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: Self.width,
-                kCVPixelBufferHeightKey as String: Self.height,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
                 kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             ]
             CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &letterboxPool)
@@ -218,7 +252,7 @@ final class H264Encoder {
               CVPixelBufferPoolCreatePixelBuffer(nil, letterboxPool, &output) == kCVReturnSuccess,
               let output else { return nil }
 
-        let frame = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
+        let frame = CGRect(x: 0, y: 0, width: width, height: height)
         let image = CIImage(cvPixelBuffer: source)
         let scale = min(frame.width / image.extent.width, frame.height / image.extent.height)
         let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
@@ -231,7 +265,7 @@ final class H264Encoder {
     private func makeSession() -> VTCompressionSession? {
         var session: VTCompressionSession?
         VTCompressionSessionCreate(
-            allocator: nil, width: Int32(Self.width), height: Int32(Self.height), codecType: codec,
+            allocator: nil, width: Int32(width), height: Int32(height), codecType: codec,
             encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard let session else { return nil }

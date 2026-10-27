@@ -56,6 +56,16 @@ struct ContentView: View {
             if !camera.details.isEmpty {
                 Text(camera.details)
             }
+            // Each chip jumps to a lens's zoom; in dim light or up close, the camera may keep the wider lens and crop.
+            if camera.lensZooms.count > 1 {
+                HStack(spacing: 8) {
+                    ForEach(camera.lensZooms, id: \.self) { zoom in
+                        Button(Self.zoomLabel(zoom / camera.zoomDisplayScale)) { camera.setZoom(zoom) }
+                            .buttonStyle(.bordered)
+                            .tint(abs(camera.zoom - zoom) < 0.05 ? .yellow : .white)
+                    }
+                }
+            }
             if camera.zoomRange.lowerBound < camera.zoomRange.upperBound {
                 HStack(spacing: 12) {
                     Slider(value: Binding(get: { camera.zoom }, set: { camera.setZoom($0) }), in: camera.zoomRange)
@@ -92,6 +102,11 @@ struct ContentView: View {
         .padding()
     }
 
+    /// A lens chip's label, such as "0.5x" or "2x".
+    private static func zoomLabel(_ zoom: Double) -> String {
+        zoom == zoom.rounded() ? "\(Int(zoom))x" : String(format: "%.1fx", zoom)
+    }
+
     /// iOS stops the camera when the screen really turns off, so "off" is a black screen at the lowest brightness.
     private func setScreenOff(_ off: Bool) {
         guard off != isScreenOff else { return }
@@ -106,7 +121,8 @@ struct ContentView: View {
     }
 }
 
-/// Picks the preset. The camera switches as soon as one is picked, and the app keeps it for the next start.
+/// Picks the preset and the camera options. The camera follows each change at once, and the app keeps them for the
+/// next start.
 struct SettingsView: View {
     @ObservedObject var camera: CameraController
     @Environment(\.dismiss) private var dismiss
@@ -132,6 +148,59 @@ struct SettingsView: View {
                 } header: {
                     Text("Preset")
                 }
+                Section {
+                    if !camera.lenses.isEmpty {
+                        Picker("Lens", selection: option(\.lens)) {
+                            ForEach([Lens.auto] + camera.lenses) { Text($0.name).tag($0) }
+                        }
+                    }
+                    Picker("Stabilization", selection: option(\.stabilization)) {
+                        ForEach(Stabilization.allCases) { Text($0.name).tag($0) }
+                    }
+                    Toggle("Near focus", isOn: option(\.nearFocus))
+                } header: {
+                    Text("Camera")
+                } footer: {
+                    Text("Auto lets the camera switch lenses as you zoom. Auto stabilization turns on while the phone shakes and off while it stands still; Cinematic steadies most but adds delay. Near focus looks for close subjects first.")
+                }
+                Section {
+                    HStack {
+                        Text("Exposure")
+                        Spacer()
+                        Text(String(format: "%+.1f EV", camera.options.exposureBias)).foregroundColor(.secondary)
+                    }
+                    Slider(value: option(\.exposureBias), in: CameraOptions.exposureBiasRange, step: 0.1)
+                    Toggle("Auto white balance", isOn: Binding(
+                        get: { camera.options.whiteBalance == nil || !camera.canFixWhiteBalance },
+                        set: { update(\.whiteBalance, $0 ? nil : CameraOptions.defaultWhiteBalance) }))
+                        .disabled(!camera.canFixWhiteBalance)
+                    if let kelvins = camera.options.whiteBalance, camera.canFixWhiteBalance {
+                        HStack {
+                            Text("White balance")
+                            Spacer()
+                            Text("\(kelvins) K").foregroundColor(.secondary)
+                        }
+                        Slider(value: Binding(get: { Double(kelvins) }, set: { update(\.whiteBalance, Int($0)) }),
+                               in: Double(CameraOptions.whiteBalanceRange.lowerBound)...Double(CameraOptions.whiteBalanceRange.upperBound),
+                               step: 100)
+                    }
+                } header: {
+                    Text("Picture")
+                } footer: {
+                    Text(camera.canFixWhiteBalance
+                         ? "Lower kelvins turn the picture blue, for warm lamps; higher ones turn it yellow, for shade."
+                         : "Hold one lens to fix the white balance: a camera that switches lenses follows iOS's white balance only.")
+                }
+                Section {
+                    Picker("Max bitrate", selection: option(\.maxBitRate)) {
+                        Text("No limit").tag(Int?.none)
+                        ForEach(CameraOptions.maxBitRates, id: \.self) { Text("\($0 / 1_000_000) Mbps").tag(Int?.some($0)) }
+                    }
+                } header: {
+                    Text("Stream")
+                } footer: {
+                    Text("On battery the camera runs at 30 fps at most. As the phone heats up, it also drops 4K, the bitrate and stabilization.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -140,6 +209,17 @@ struct SettingsView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    /// A binding that sets one camera option and keeps the others.
+    private func option<Value>(_ keyPath: WritableKeyPath<CameraOptions, Value>) -> Binding<Value> {
+        Binding(get: { camera.options[keyPath: keyPath] }, set: { update(keyPath, $0) })
+    }
+
+    private func update<Value>(_ keyPath: WritableKeyPath<CameraOptions, Value>, _ value: Value) {
+        var options = camera.options
+        options[keyPath: keyPath] = value
+        camera.setOptions(options)
     }
 }
 
