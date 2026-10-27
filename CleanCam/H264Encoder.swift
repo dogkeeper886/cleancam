@@ -1,7 +1,8 @@
 import CoreImage
 import VideoToolbox
 
-/// Hardware H.264 encoder. Hands out each frame as an Annex-B byte stream, the format ffmpeg reads with `-f h264`.
+/// Hardware H.264 or HEVC encoder. Hands out each frame as an Annex-B byte stream, which ffmpeg reads as raw H.264 or
+/// HEVC.
 /// The stream is always 1920x1080 so the PC's webcam never changes size; portrait frames get black bars.
 final class H264Encoder {
     var onEncoded: ((_ data: Data, _ isKeyframe: Bool) -> Void)?
@@ -36,6 +37,7 @@ final class H264Encoder {
     private(set) var bitRate = H264Encoder.targetAt30fps
     /// Set by the debug port's `bitrate` command; adaptation leaves the bitrate alone until `unpin`.
     private(set) var isPinned = false
+    private var codec = kCMVideoCodecType_H264
     private var secondsWithoutBacklog = 0
     private var session: VTCompressionSession?
     private let ciContext = CIContext()
@@ -106,6 +108,15 @@ final class H264Encoder {
         if !isPinned { bitRate = targetBitRate }
         secondsWithoutBacklog = 0
         reset()
+    }
+
+    /// Encodes as `codec`, `kCMVideoCodecType_H264` or `kCMVideoCodecType_HEVC`, from the next frame on, in a new
+    /// session. Returns whether the codec changed.
+    func setCodec(_ codec: CMVideoCodecType) -> Bool {
+        guard codec != self.codec else { return false }
+        self.codec = codec
+        reset()
+        return true
     }
 
     /// Holds the bitrate at `rate` until `unpin`, for the debug port.
@@ -220,13 +231,14 @@ final class H264Encoder {
     private func makeSession() -> VTCompressionSession? {
         var session: VTCompressionSession?
         VTCompressionSessionCreate(
-            allocator: nil, width: Int32(Self.width), height: Int32(Self.height), codecType: kCMVideoCodecType_H264,
+            allocator: nil, width: Int32(Self.width), height: Int32(Self.height), codecType: codec,
             encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard let session else { return nil }
         var properties: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: true,
-            kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
+            kVTCompressionPropertyKey_ProfileLevel: codec == kCMVideoCodecType_HEVC
+                ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel,
             kVTCompressionPropertyKey_AllowFrameReordering: false,  // no B-frames, less delay
         ]
         properties.merge(rateProperties) { $1 }
@@ -237,9 +249,11 @@ final class H264Encoder {
     }
 
     /// Converts the encoder's length-prefixed NAL units to start-code-prefixed ones,
-    /// and puts SPS/PPS in front of every keyframe so a viewer can join at any keyframe.
+    /// and puts the parameter sets in front of every keyframe so a viewer can join at any keyframe.
     private func emit(_ sampleBuffer: CMSampleBuffer) {
         guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        let format = CMSampleBufferGetFormatDescription(sampleBuffer)
+        let isHEVC = format.map { CMFormatDescriptionGetMediaSubType($0) == kCMVideoCodecType_HEVC } ?? false
         let length = CMBlockBufferGetDataLength(block)
         guard length > 0 else { return }
         var avcc = Data(count: length)
@@ -255,15 +269,17 @@ final class H264Encoder {
             let size = avcc[offset..<offset + 4].reduce(0) { $0 << 8 | Int($1) }
             offset += 4
             guard size > 0, offset + size <= avcc.count else { break }
-            if avcc[offset] & 0x1F == 5 { isKeyframe = true }  // IDR slice
+            // An H.264 IDR slice, or an HEVC random-access picture: BLA, IDR or CRA.
+            let header = avcc[offset]
+            if isHEVC ? (16...21).contains((header >> 1) & 0x3F) : header & 0x1F == 5 { isKeyframe = true }
             nalUnits.append(contentsOf: Self.startCode)
             nalUnits.append(avcc[offset..<offset + size])
             offset += size
         }
 
         var output = Data()
-        if isKeyframe, let format = CMSampleBufferGetFormatDescription(sampleBuffer) {
-            output.append(Self.parameterSets(of: format))
+        if isKeyframe, let format {
+            output.append(Self.parameterSets(of: format, isHEVC: isHEVC))
         }
         output.append(nalUnits)
         lock.lock()
@@ -274,19 +290,17 @@ final class H264Encoder {
         onEncoded?(output, isKeyframe)
     }
 
-    private static func parameterSets(of format: CMFormatDescription) -> Data {
+    /// SPS and PPS for H.264; VPS, SPS and PPS for HEVC.
+    private static func parameterSets(of format: CMFormatDescription, isHEVC: Bool) -> Data {
+        let parameterSet = isHEVC
+            ? CMVideoFormatDescriptionGetHEVCParameterSetAtIndex : CMVideoFormatDescriptionGetH264ParameterSetAtIndex
         var data = Data()
         var count = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-            format, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil,
-            parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
+        _ = parameterSet(format, 0, nil, nil, &count, nil)
         for index in 0..<count {
             var pointer: UnsafePointer<UInt8>?
             var size = 0
-            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
-                parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
-                let pointer else { continue }
+            guard parameterSet(format, index, &pointer, &size, nil, nil) == noErr, let pointer else { continue }
             data.append(contentsOf: startCode)
             data.append(pointer, count: size)
         }

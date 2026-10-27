@@ -2,8 +2,8 @@ import AVFoundation
 import Combine
 import UIKit
 
-/// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to `port`,
-/// and the microphone as raw PCM to whoever connects to `audioPort`.
+/// Runs the back camera, shows it on the phone, and streams it as H.264, or HEVC in the WiFi preset, to whoever
+/// connects to `port`, and the microphone as raw PCM to whoever connects to `audioPort`.
 /// Plays the raw PCM a PC sends to `speakerPort` on the loudspeaker.
 /// Reports its stream to whoever connects to `debugPort`, one JSON line a second and one per event, and takes
 /// commands there.
@@ -19,6 +19,8 @@ final class CameraController: NSObject, ObservableObject {
     private static let faceTimeout = 2.0
     /// How far a face moves, in the sensor's 0–1 coordinates, before focus and exposure follow it.
     private static let faceMove: CGFloat = 0.1
+    /// Whether this phone encodes HEVC in hardware, as from the A10 chip on; without it, the WiFi preset sends H.264.
+    private static let hasHEVCEncoder = AVAssetExportSession.allExportPresets().contains(AVAssetExportPresetHEVCHighestQuality)
 
     /// What focus and exposure follow: a tap holds until the next tap or a reset, then faces, then the center.
     enum FocusTarget: String {
@@ -38,6 +40,8 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var isMicOn = true
     /// The camera mode's size, such as "1080p", once the camera runs.
     @Published private(set) var formatName: String?
+    /// Whether the encoder sends HEVC instead of H.264.
+    @Published private(set) var isHEVC = false
     /// The frames the camera delivered in the last second.
     @Published private(set) var frameRate = 0
     /// The bitrate the encoder aims for, after it adapted to the link.
@@ -94,6 +98,9 @@ final class CameraController: NSObject, ObservableObject {
             guard let self else { return }
             // A new viewer can only start decoding at a keyframe.
             if count > 0 { self.encoder.requestKeyframe() }
+            // The app stops encoding while no viewer is connected, and a session that sat idle then sends 40% over its
+            // bitrate, so the next viewer gets a new session.
+            if count == 0 { self.videoQueue.async { self.encoder.reset() } }
             self.sendDebug(["event": "viewers", "port": Int(Self.port), "count": count])
             DispatchQueue.main.async {
                 self.status = count > 0 ? "Streaming to PC" : "Waiting for PC on port \(Self.port)"
@@ -119,7 +126,8 @@ final class CameraController: NSObject, ObservableObject {
     var details: String {
         guard let formatName else { return "" }
         let mbps = String(format: "%.1f", Double(bitRate) / 1_000_000)
-        return "\(preset.name) · \(formatName) · \(frameRate) fps · \(mbps) Mbps · \(focusTarget.rawValue)"
+        let codec = isHEVC ? " · HEVC" : ""
+        return "\(preset.name) · \(formatName)\(codec) · \(frameRate) fps · \(mbps) Mbps · \(focusTarget.rawValue)"
     }
 
     func start() {
@@ -307,16 +315,23 @@ final class CameraController: NSObject, ObservableObject {
         if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = true }
     }
 
-    /// Called on sessionQueue once the camera mode or its frame rates changed. The encoder plans its bitrate and keyframes
-    /// around the mode's top rate, and the status line, the zoom slider and the debug port follow the mode.
+    /// Called on sessionQueue once the preset, the camera mode or its frame rates changed. The encoder plans its bitrate
+    /// and keyframes around the mode's top rate and takes the preset's codec, and the status line, the zoom slider and
+    /// the debug port follow the mode.
     private func modeChanged(_ device: AVCaptureDevice) {
         let topRate = Self.frameRate(of: device.activeVideoMinFrameDuration)
-        if topRate > 0 { videoQueue.async { self.encoder.setFrameRate(topRate) } }
+        let codec = activeCodec
+        videoQueue.async {
+            if topRate > 0 { self.encoder.setFrameRate(topRate) }
+            // The receiver detects the codec as it connects, so a new codec reconnects it.
+            if self.encoder.setCodec(codec) { self.server.disconnectAll() }
+        }
         let size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         let lossless = Double(device.activeFormat.videoZoomFactorUpscaleThreshold)
         let range = Double(device.minAvailableVideoZoomFactor)...min(Double(device.maxAvailableVideoZoomFactor), wideZoom * 10)
         DispatchQueue.main.async {
             self.formatName = "\(size.height)p"
+            self.isHEVC = codec == kCMVideoCodecType_HEVC
             self.losslessZoom = lossless
             self.zoomRange = range
         }
@@ -329,7 +344,8 @@ final class CameraController: NSObject, ObservableObject {
         let format = device.activeFormat
         let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
         sendDebug([
-            "event": "mode", "preset": activePreset.rawValue, "width": Int(size.width), "height": Int(size.height),
+            "event": "mode", "preset": activePreset.rawValue, "codec": activeCodec == kCMVideoCodecType_HEVC ? "hevc" : "h264",
+            "width": Int(size.width), "height": Int(size.height),
             "fps": [Self.frameRate(of: device.activeVideoMaxFrameDuration), Self.frameRate(of: device.activeVideoMinFrameDuration)],
             "modeTopFps": Self.topFrameRate(of: format), "binned": format.isVideoBinned, "hdr": format.isVideoHDRSupported,
             "losslessZoom": Double(format.videoZoomFactorUpscaleThreshold),
@@ -343,6 +359,11 @@ final class CameraController: NSObject, ObservableObject {
         guard metadataOutput.availableMetadataObjectTypes.contains(.face) else { return }
         metadataOutput.metadataObjectTypes = [.face]
         metadataOutput.setMetadataObjectsDelegate(self, queue: sessionQueue)
+    }
+
+    /// Called on sessionQueue. The preset's codec, where this phone can encode it.
+    private var activeCodec: CMVideoCodecType {
+        activePreset.prefersHEVC && Self.hasHEVCEncoder ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264
     }
 
     /// The 1920x1080 mode that reaches `rate` with the best picture, or reaches 30 fps where none reaches `rate`:

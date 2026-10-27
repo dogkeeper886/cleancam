@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// TCP server that sends a stream, the H.264 video or the PCM audio, to every connected client,
+/// TCP server that sends a stream, the video or the PCM audio, to every connected client,
 /// or receives one, the PC's speaker audio.
 /// Over USB the PC reaches it through usbmuxd (`iproxy`); over WiFi a PC can connect to the phone's IP directly.
 final class StreamServer {
@@ -84,6 +84,13 @@ final class StreamServer {
             for client in self.clients.values { client.connection.cancel() }
             self.clients.removeAll()
             self.clientsChanged()
+        }
+    }
+
+    /// Closes every client's connection; a client that connects again starts at the next keyframe.
+    func disconnectAll() {
+        queue.async {
+            for id in Array(self.clients.keys) { self.remove(id) }
         }
     }
 

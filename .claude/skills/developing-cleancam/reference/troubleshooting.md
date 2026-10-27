@@ -21,7 +21,7 @@ Find the symptom, apply the fix, then resume at the step that failed.
 | `tools/build-legacy.sh`: `Undefined symbols for architecture armv7: "_memset"`, `_memcpy` or `_bzero` | The theos iOS 10.3 SDK's libc stubs lack them | Build against the iOS 11.4 SDK, as the script does |
 | `tools/build-legacy.sh`: `Undefined symbols for architecture armv7` for a framework's class or function, such as `_OBJC_CLASS_$_CATransaction` | clang without Xcode links only the frameworks it is given | Add the framework to the `-framework` list in `tools/build-legacy.sh` |
 | `ld64.lld: missing or unsupported -arch armv7`, or lld relocation errors | LLVM's lld cannot link 32-bit ARM iPhone apps | Link with Apple's ld64 from the theos toolchain, as `tools/build-legacy.sh` does |
-| `ffprobe` on `/dev/video10`: "Device or resource busy" | A video app already reads the webcam | Probe the stream at its port instead: `ffprobe -f h264 -i tcp://127.0.0.1:5000` |
+| `ffprobe` on `/dev/video10`: "Device or resource busy" | A video app already reads the webcam | Probe the stream at its port instead: `ffprobe -i tcp://127.0.0.1:5000`, which detects H.264 or HEVC |
 | The receiver keeps printing `Error connecting to device` | CleanCam is closed, or the installed build lacks that port | Open CleanCam; the receiver retries every few seconds |
 | The app won't open: "Untrusted Developer" | First install from this Apple ID | Settings → General → VPN & Device Management → Trust |
 | The app stopped opening after about a week | Free Apple ID signing lasts 7 days | Reinstall with step 13 of `SKILL.md` |

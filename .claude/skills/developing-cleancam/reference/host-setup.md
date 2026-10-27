@@ -10,7 +10,7 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | usbmuxd | the USB link to the iPhone | `idevice_id -l` lists the phone |
 | `idevice_id`, `idevicepair`, `ideviceinfo` (libimobiledevice) | finding and pairing the phone | `command -v idevice_id` |
 | `iproxy` (libusbmuxd) | forwarding the stream ports over USB; `tools/iproxy.sh` runs it in podman or docker when the host lacks it | `command -v iproxy` |
-| ffmpeg with H.264 decoding | decoding the stream | `ffmpeg -hide_banner -decoders \| grep -w h264` |
+| ffmpeg with H.264 and HEVC decoding | decoding the stream; HEVC for the WiFi preset | `ffmpeg -hide_banner -decoders \| grep -wE 'h264\|hevc'` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
 | PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module, or PulseAudio's pipe source and null sink | `wpctl status`, or `pactl list short sources` and `sinks`, lists CleanCam while the receiver runs |
 | `python3` | sending the CleanCam speaker's sound to the phone in even 10 ms pieces | `command -v python3` |
