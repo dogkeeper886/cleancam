@@ -12,6 +12,7 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 | `iproxy` (libusbmuxd) | forwarding the stream ports over USB; `tools/iproxy.sh` runs it in podman or docker when the host lacks it | `command -v iproxy` |
 | ffmpeg with H.264 and HEVC decoding | decoding the stream; HEVC for the WiFi preset | `ffmpeg -hide_banner -decoders \| grep -wE 'h264\|hevc'` |
 | v4l2loopback | the virtual webcam | `modinfo v4l2loopback` |
+| `v4l2loopback-ctl`, from v4l2loopback 0.12.5 on | adding the webcam when OBS or another app loaded the module first | `command -v v4l2loopback-ctl` |
 | PipeWire as the sound server with `pw-cli`, or PulseAudio with `pactl` and `parec` | the "CleanCam" microphone and speaker, through PipeWire's pipe-tunnel module, or PulseAudio's pipe source and null sink | `wpctl status`, or `pactl list short sources` and `sinks`, lists CleanCam while the receiver runs |
 | `python3` | sending the CleanCam speaker's sound to the phone in even 10 ms pieces | `command -v python3` |
 | plumesign | signing and installing with an Apple ID | `tools/plumesign.sh --version` |
@@ -20,12 +21,12 @@ The Linux PC needs these once. Contents: Tools · plumesign · Pairing · RHEL 9
 
 Install them with the distribution's packages:
 
-- **Debian / Ubuntu:** `sudo apt install usbmuxd libimobiledevice-utils libusbmuxd-tools ffmpeg v4l2loopback-dkms pipewire-bin`
+- **Debian / Ubuntu:** `sudo apt install usbmuxd libimobiledevice-utils libusbmuxd-tools ffmpeg v4l2loopback-dkms v4l2loopback-utils pipewire-bin`
 - **Fedora**, with RPM Fusion enabled for ffmpeg and v4l2loopback: `sudo dnf install usbmuxd libimobiledevice-utils libusbmuxd-utils ffmpeg v4l2loopback pipewire-utils`
 - **RHEL, Rocky or Alma 9:** see RHEL 9 family below.
 - **RHEL, Rocky or Alma 8:** see RHEL 8 family below.
 
-When `modinfo v4l2loopback` still fails after a dkms or akmod build, run `sudo depmod -a`. The receiver loads the module itself when `/dev/video${VIDEO_NR:-10}` is missing.
+When `modinfo v4l2loopback` still fails after a dkms or akmod build, run `sudo depmod -a`. The receiver loads the module itself when `/dev/video${VIDEO_NR:-10}` is missing, or adds the device with `v4l2loopback-ctl` when another app, such as OBS, loaded the module first.
 
 ## plumesign
 

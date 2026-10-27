@@ -26,7 +26,15 @@ trap cleanup EXIT
 
 if [[ ! -e $VIDEO ]]; then
   # exclusive_caps=1 lets Chrome and other WebRTC apps list the device as a camera.
-  sudo modprobe v4l2loopback video_nr="$VIDEO_NR" card_label=CleanCam exclusive_caps=1
+  if [[ ! -d /sys/module/v4l2loopback ]]; then
+    sudo modprobe v4l2loopback video_nr="$VIDEO_NR" card_label=CleanCam exclusive_caps=1
+  # Another app, such as OBS for its virtual camera, loaded the module without this device, and modprobe changes nothing
+  # on a loaded module; v4l2loopback-ctl, from v4l2loopback 0.12.5 on, adds the device to it.
+  elif ! sudo v4l2loopback-ctl add -n CleanCam -x 1 "$VIDEO" >/dev/null; then
+    echo "v4l2loopback is loaded without $VIDEO. Install v4l2loopback-ctl, or close the app that loaded it, such as OBS," \
+      "and run: sudo modprobe -r v4l2loopback" >&2
+    exit 1
+  fi
 fi
 
 if [[ -z $HOST ]]; then
