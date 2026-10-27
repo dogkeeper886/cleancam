@@ -2,8 +2,8 @@ import AVFoundation
 import Combine
 import UIKit
 
-/// Runs the back camera, shows it on the phone, and streams it as H.264 to whoever connects to `port`,
-/// and the microphone as raw PCM to whoever connects to `audioPort`.
+/// Runs the back camera, shows it on the phone, and streams it as H.264, or HEVC in the WiFi preset, to whoever
+/// connects to `port`, and the microphone as raw PCM to whoever connects to `audioPort`.
 /// Plays the raw PCM a PC sends to `speakerPort` on the loudspeaker.
 /// Reports its stream to whoever connects to `debugPort`, one JSON line a second and one per event, and takes
 /// commands there.
@@ -40,6 +40,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var isMicOn = true
     /// The camera mode's size, such as "1080p", once the camera runs.
     @Published private(set) var formatName: String?
+    /// Whether the encoder sends HEVC instead of H.264.
     @Published private(set) var isHEVC = false
     /// The frames the camera delivered in the last second.
     @Published private(set) var frameRate = 0
