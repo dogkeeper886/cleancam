@@ -171,9 +171,10 @@ struct SettingsView: View {
                     }
                     Slider(value: option(\.exposureBias), in: CameraOptions.exposureBiasRange, step: 0.1)
                     Toggle("Auto white balance", isOn: Binding(
-                        get: { camera.options.whiteBalance == nil },
+                        get: { camera.options.whiteBalance == nil || !camera.canFixWhiteBalance },
                         set: { update(\.whiteBalance, $0 ? nil : CameraOptions.defaultWhiteBalance) }))
-                    if let kelvins = camera.options.whiteBalance {
+                        .disabled(!camera.canFixWhiteBalance)
+                    if let kelvins = camera.options.whiteBalance, camera.canFixWhiteBalance {
                         HStack {
                             Text("White balance")
                             Spacer()
@@ -186,7 +187,9 @@ struct SettingsView: View {
                 } header: {
                     Text("Picture")
                 } footer: {
-                    Text("Lower kelvins turn the picture blue, for warm lamps; higher ones turn it yellow, for shade.")
+                    Text(camera.canFixWhiteBalance
+                         ? "Lower kelvins turn the picture blue, for warm lamps; higher ones turn it yellow, for shade."
+                         : "Hold one lens to fix the white balance: a camera that switches lenses follows iOS's white balance only.")
                 }
                 Section {
                     Picker("Max bitrate", selection: option(\.maxBitRate)) {

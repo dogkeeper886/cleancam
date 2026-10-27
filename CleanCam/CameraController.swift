@@ -65,6 +65,8 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var lensZooms: [Double] = []
     /// The lens the picture comes from, where the phone has more than one and tells which.
     @Published private(set) var lensName: String?
+    /// Whether the camera can hold a fixed white balance; a multi-lens camera can't, while each lens's own camera can.
+    @Published private(set) var canFixWhiteBalance = false
     @Published private(set) var stabilizationMode = AVCaptureVideoStabilizationMode.off
     @Published private(set) var heat = HeatLevel.none
 
@@ -174,7 +176,7 @@ final class CameraController: NSObject, ObservableObject {
         var parts = [preset.name, "\(formatName)\(codec)", "\(frameRate) fps", "\(mbps) Mbps"]
         parts += [lensName, Self.statusName(of: stabilizationMode)].compactMap { $0 }
         if options.exposureBias != 0 { parts.append(String(format: "EV %+.1f", options.exposureBias)) }
-        if let kelvins = options.whiteBalance { parts.append("\(kelvins) K") }
+        if let kelvins = options.whiteBalance, canFixWhiteBalance { parts.append("\(kelvins) K") }
         if options.nearFocus { parts.append("Near") }
         parts += [heat.name, focusTarget.rawValue].compactMap { $0 }
         return parts.joined(separator: " · ")
@@ -393,7 +395,9 @@ final class CameraController: NSObject, ObservableObject {
             camera.unlockForConfiguration()
         }
         let chips = held == nil && lensCameras.count > 1 ? lensCameras.map(\.zoom) : []
+        let canFixWhiteBalance = camera.isLockingWhiteBalanceWithCustomDeviceGainsSupported
         DispatchQueue.main.async {
+            self.canFixWhiteBalance = canFixWhiteBalance
             self.zoom = zoom
             self.zoomDisplayScale = wideZoom
             self.lensZooms = chips
@@ -638,6 +642,7 @@ final class CameraController: NSObject, ObservableObject {
             "whiteBalance": [
                 "asked": options.whiteBalance.map { $0 as Any } ?? "auto",
                 "mode": device.whiteBalanceMode == .locked ? "locked" : "auto", "kelvins": Int(kelvins.rounded()),
+                "fixable": device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
             ] as [String: Any],
             "nearFocus": ["asked": options.nearFocus, "took": device.autoFocusRangeRestriction == .near],
             "maxBitRate": options.maxBitRate.map { $0 as Any } ?? NSNull(),
