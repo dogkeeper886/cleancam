@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CleanCam test pattern</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+// A moving scene to point the iPhone's camera at, so every test gives the encoder the same input: shaded balls on
+// Lissajous paths, a turning Siemens star for fine detail and focus, and scrolling waves. The clock alone sets each
+// frame, at any screen refresh rate. Click for full screen.
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const BACKGROUND = '#0b1020';
+const BALLS = Array.from({ length: 7 }, (_, i) => ({
+  a: 1 + i % 3, b: 2 + (i * 2) % 5, phase: i * 0.9, hue: i * 360 / 7, radius: 0.05 + 0.025 * (i % 3),
+}));
+
+function resize() {
+  canvas.width = innerWidth * devicePixelRatio;
+  canvas.height = innerHeight * devicePixelRatio;
+}
+addEventListener('resize', resize);
+addEventListener('click', () => document.documentElement.requestFullscreen?.());
+resize();
+
+function star(t, x, y, radius) {
+  const spokes = 36;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t * 0.4);
+  ctx.fillStyle = '#e8ecf4';
+  for (let i = 0; i < spokes; i++) {
+    const from = i * 2 * Math.PI / spokes;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, radius, from, from + Math.PI / spokes);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function waves(t, w, h) {
+  ctx.lineWidth = Math.max(2, h * 0.006);
+  for (let k = 0; k < 5; k++) {
+    ctx.strokeStyle = `hsl(${190 + k * 30} 90% 60%)`;
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 4) {
+      const y = h * (0.8 + 0.03 * k) + h * 0.05 * Math.sin(x / w * (3 + 2 * k) * Math.PI - t * (1.2 + 0.5 * k));
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function ball(t, ball, w, h, size) {
+  const x = w / 2 + w * 0.4 * Math.sin(ball.a * t * 0.5 + ball.phase);
+  const y = h * 0.4 + h * 0.32 * Math.sin(ball.b * t * 0.5);
+  const r = ball.radius * size;
+  const shade = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+  shade.addColorStop(0, `hsl(${ball.hue} 100% 85%)`);
+  shade.addColorStop(0.5, `hsl(${ball.hue} 85% 55%)`);
+  shade.addColorStop(1, `hsl(${ball.hue} 80% 20%)`);
+  ctx.fillStyle = shade;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+function frame(now) {
+  const t = now / 1000;
+  const w = canvas.width;
+  const h = canvas.height;
+  const size = Math.min(w, h);
+  ctx.fillStyle = BACKGROUND;
+  ctx.fillRect(0, 0, w, h);
+  star(t, w / 2, h * 0.4, size * 0.22);
+  waves(t, w, h);
+  for (const b of BALLS) ball(t, b, w, h, size);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
