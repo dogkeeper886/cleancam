@@ -12,6 +12,7 @@ AUDIO_PORT=${AUDIO_PORT:-5001}      # TCP port the app sends microphone audio on
 SPEAKER_PORT=${SPEAKER_PORT:-5002}  # TCP port the app plays speaker audio from
 DEBUG_PORT=${DEBUG_PORT:-5003}      # TCP port of the app's debug stats and commands; the receiver only forwards it
 VIDEO_NR=${VIDEO_NR:-10}            # webcam device number: /dev/video$VIDEO_NR
+VAAPI_DEVICE=${VAAPI_DEVICE-/dev/dri/renderD128}  # GPU that decodes the video through VAAPI; empty decodes on the CPU
 VIDEO=/dev/video$VIDEO_NR
 HOST=${1:-}
 
@@ -163,16 +164,45 @@ if [[ $(ffmpeg -hide_banner -version 2>/dev/null) =~ $LAVF_VERSION ]] &&
   FRAME_RATE+=(-r 30)
 fi
 
+# A GPU with a working VAAPI driver decodes the video: 1080p30 H.264 took 18% of a 2014 Intel i5's core instead of 58%
+# in software. hwdownload copies each frame back from the GPU. A GPU that lacks the stream's codec, as Haswell lacks
+# HEVC, makes ffmpeg print "Failed setup for format vaapi" and stop, because the frames it then decodes in software
+# can't pass hwdownload; the loop connects again at once in software, and tries the GPU on the next connection.
+GPU_INPUT=() GPU_OUTPUT=()
+if [[ $VAAPI_DEVICE ]] && ffmpeg -hide_banner -loglevel quiet -init_hw_device "vaapi=va:$VAAPI_DEVICE" \
+  -f lavfi -i nullsrc=s=64x64 -frames:v 1 -f null - >/dev/null 2>&1; then
+  GPU_INPUT=(-hwaccel vaapi -hwaccel_device "$VAAPI_DEVICE" -hwaccel_output_format vaapi)
+  GPU_OUTPUT=(-vf hwdownload,format=nv12)
+fi
+# libva and Intel's i965 driver print each driver they try at every start.
+DRIVER_NOISE='libva: |hybrid_drv_video'
+
 MESSAGE="Writing the CleanCam stream from $HOST:$PORT to $VIDEO"
+[[ ${GPU_INPUT[*]} ]] && MESSAGE+=", decoded on the GPU"
 [[ $SOUND ]] && MESSAGE+=", its sound to the CleanCam microphone, and the CleanCam speaker to the phone"
 echo "$MESSAGE. Open CleanCam on the iPhone; Ctrl-C to stop."
 # ffmpeg detects H.264 or HEVC as it connects; the app drops the connection when the codec changes, and the loop
 # connects again. ffmpeg analyzes the stream's start before it decodes: -fflags nobuffer dropped the frames it
 # analyzed, 2 s with ffmpeg 7.1 and 5 s with 4.4, and an HEVC stream then started at frames whose references were gone.
 # A 0.1 s analysis keeps every frame and shows the first one about 0.1 s after the connection.
+use_gpu=${GPU_INPUT[*]}
 while true; do
-  ffmpeg -hide_banner -loglevel warning \
-    -analyzeduration 100000 -flags low_delay "${FRAME_RATE[@]}" -i "tcp://$HOST:$PORT" \
-    "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" 2> >(grep -Ev --line-buffered "$OPEN_FAILED" >&2) || true
-  sleep 1  # the app is closed or not reachable yet; try again
+  decode_input=() decode_output=()
+  [[ $use_gpu ]] && decode_input=("${GPU_INPUT[@]}") decode_output=("${GPU_OUTPUT[@]}")
+  gpu_failed= open_failed=
+  while IFS= read -r line; do
+    [[ $line =~ $OPEN_FAILED ]] && open_failed=1 && continue
+    [[ $line =~ $DRIVER_NOISE ]] && continue
+    [[ $use_gpu && $line == *"No support for codec"* ]] && continue  # the GPU lacks the codec; the next line says so
+    [[ $line == *"Failed setup for format vaapi"* ]] && gpu_failed=1 && echo "The GPU can't decode this stream; decoding it on the CPU." >&2
+    [[ $gpu_failed ]] || echo "$line" >&2  # after the failure, ffmpeg only reports why it stops
+  done < <(ffmpeg -hide_banner -loglevel warning \
+    -analyzeduration 100000 -flags low_delay "${FRAME_RATE[@]}" "${decode_input[@]}" -i "tcp://$HOST:$PORT" \
+    "${decode_output[@]}" "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" 2>&1)
+  if [[ $gpu_failed ]]; then
+    use_gpu=
+    continue
+  fi
+  [[ $open_failed ]] || use_gpu=${GPU_INPUT[*]}  # a stream that played and ended goes back to the GPU
+  sleep 1  # the app is closed or not reachable yet, or its stream ended; try again
 done
