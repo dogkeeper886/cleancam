@@ -3,3 +3,4 @@ CleanCam/Info.plist
 build/
 Payload/
 *.ipa
+.sessions/
