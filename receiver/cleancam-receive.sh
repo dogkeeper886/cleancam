@@ -43,9 +43,10 @@ if [[ -z $HOST ]]; then
     exit 1
   fi
   # iproxy forwards each localhost port to the app's port through the USB cable; tools/iproxy.sh runs it in a
-  # container where the host lacks it.
+  # container where the host lacks it. While the app is closed, iproxy reports "Error connecting to device" on each
+  # of the loops' attempts, once a second; grep drops that line and keeps iproxy's other errors.
   "$(dirname "$0")/../tools/iproxy.sh" "$PORT:$PORT" "$AUDIO_PORT:$AUDIO_PORT" "$SPEAKER_PORT:$SPEAKER_PORT" \
-    "$DEBUG_PORT:$DEBUG_PORT" >/dev/null &
+    "$DEBUG_PORT:$DEBUG_PORT" >/dev/null 2> >(grep -v --line-buffered '^Error connecting to device' >&2) &
   HOST=127.0.0.1
 fi
 
@@ -121,12 +122,18 @@ if [[ $SOUND == pulseaudio ]]; then
   done 2>/dev/null &
 fi
 
+# While the app is closed, the loops below fail to open its stream once a second. grep drops those lines, which
+# ffmpeg 7.1 prints as "Error opening input" and "Connection to tcp://... failed", and 4.4 as "tcp://...: <reason>".
+OPEN_FAILED='Error opening input|Connection to tcp://|^tcp://'
+
 if [[ $SOUND ]]; then
   while true; do
-    # ffmpeg writes whole samples, so a reconnect never shifts the bytes out of order.
+    # ffmpeg writes whole samples, so a reconnect never shifts the bytes out of order. Over USB, a closed app's
+    # connection opens and ends empty, and ffmpeg warns three times about it; -loglevel error keeps only errors.
     if [[ -p $MIC_FIFO ]]; then
-      ffmpeg -hide_banner -loglevel warning \
-        -f s16le -ar 48000 -ac 1 -i "tcp://$HOST:$AUDIO_PORT" -f s16le -y "$MIC_FIFO" || true
+      ffmpeg -hide_banner -loglevel error \
+        -f s16le -ar 48000 -ac 1 -i "tcp://$HOST:$AUDIO_PORT" -f s16le -y "$MIC_FIFO" \
+        2> >(grep -Ev --line-buffered "$OPEN_FAILED" >&2) || true
     fi
     sleep 1  # the app is closed or not reachable yet, or the microphone is starting; try again
   done &
@@ -158,7 +165,7 @@ fi
 
 MESSAGE="Writing the CleanCam stream from $HOST:$PORT to $VIDEO"
 [[ $SOUND ]] && MESSAGE+=", its sound to the CleanCam microphone, and the CleanCam speaker to the phone"
-echo "$MESSAGE. Ctrl-C to stop."
+echo "$MESSAGE. Open CleanCam on the iPhone; Ctrl-C to stop."
 # ffmpeg detects H.264 or HEVC as it connects; the app drops the connection when the codec changes, and the loop
 # connects again. ffmpeg analyzes the stream's start before it decodes: -fflags nobuffer dropped the frames it
 # analyzed, 2 s with ffmpeg 7.1 and 5 s with 4.4, and an HEVC stream then started at frames whose references were gone.
@@ -166,6 +173,6 @@ echo "$MESSAGE. Ctrl-C to stop."
 while true; do
   ffmpeg -hide_banner -loglevel warning \
     -analyzeduration 100000 -flags low_delay "${FRAME_RATE[@]}" -i "tcp://$HOST:$PORT" \
-    "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" || true
+    "$FPS_MODE" passthrough -pix_fmt yuv420p -f v4l2 "$VIDEO" 2> >(grep -Ev --line-buffered "$OPEN_FAILED" >&2) || true
   sleep 1  # the app is closed or not reachable yet; try again
 done
