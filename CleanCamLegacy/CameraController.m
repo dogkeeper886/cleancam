@@ -2,6 +2,7 @@
 
 #import "CallAudio.h"
 #import "H264Encoder.h"
+#import "MotionDetector.h"
 #import "StreamServer.h"
 
 static const uint16_t kPort = 5000;
@@ -11,9 +12,10 @@ static const uint16_t kDebugPort = 5003;
 /// The highest bitrate the debug port's bitrate command holds: far above what the encoder sends, and low enough that
 /// the encoder's rate math can't overflow an int.
 static const int kMaxPinnedBitRate = 100000000;
-/// Auto exposure holds the top rate and slows toward the bottom one in the dark, for more light per frame.
+/// Auto exposure holds the top rate and slows toward the preset's bottom one in the dark, for more light per frame.
 static const int kTopFrameRate = 30;
-static const int kBottomFrameRate = 20;
+/// Auto stabilization changes the camera at most once in this many seconds, since each change can glitch the picture.
+static const double kAutoChangeInterval = 60;
 /// How long focus stays on a face that left the picture before it returns to the center, in seconds.
 static const double kFaceTimeout = 2;
 /// How far a face moves, in the sensor's 0–1 coordinates, before focus and exposure follow it.
@@ -75,15 +77,50 @@ static CMTime FrameDuration(int rate, AVFrameRateRange *range) {
     return CMTimeMake(1, rate);
 }
 
-/// Called with the device locked. Auto exposure holds the top rate and slows toward the bottom one in the dark.
-static void ApplyFrameRates(AVCaptureDevice *device) {
+/// The active mode's frame rate range that reaches highest.
+static AVFrameRateRange *TopRange(AVCaptureDevice *device) {
     AVFrameRateRange *range = nil;
     for (AVFrameRateRange *candidate in device.activeFormat.videoSupportedFrameRateRanges) {
         if (!range || candidate.maxFrameRate > range.maxFrameRate) range = candidate;
     }
+    return range;
+}
+
+/// Called with the device locked. Auto exposure holds the top rate and slows toward the preset's bottom one in the
+/// dark.
+static void ApplyFrameRates(AVCaptureDevice *device, NSString *preset) {
+    AVFrameRateRange *range = TopRange(device);
     if (!range) return;
     device.activeVideoMinFrameDuration = FrameDuration(kTopFrameRate, range);
-    device.activeVideoMaxFrameDuration = FrameDuration(kBottomFrameRate, range);
+    device.activeVideoMaxFrameDuration = FrameDuration([CameraOptions bottomFrameRateOfPreset:preset], range);
+}
+
+/// The frames per second of a frame duration, such as 30 for 1/30 s.
+static int FrameRateOf(CMTime duration) {
+    double seconds = CMTimeGetSeconds(duration);
+    return seconds > 0 ? (int)lround(1 / seconds) : 0;
+}
+
+/// The debug port's name for a stabilization mode.
+static NSString *StabilizationModeName(AVCaptureVideoStabilizationMode mode) {
+    switch (mode) {
+        case AVCaptureVideoStabilizationModeOff: return @"off";
+        case AVCaptureVideoStabilizationModeStandard: return @"standard";
+        case AVCaptureVideoStabilizationModeCinematic: return @"cinematic";
+        case AVCaptureVideoStabilizationModeAuto: return @"auto";
+        default: return @"other";
+    }
+}
+
+/// Reads the whole of text as a number, so "1x" or an empty word is no number.
+static BOOL ParseFloat(NSString *text, float *value) {
+    NSScanner *scanner = [NSScanner scannerWithString:text];
+    return [scanner scanFloat:value] && scanner.isAtEnd;
+}
+
+static BOOL ParseInt(NSString *text, int *value) {
+    NSScanner *scanner = [NSScanner scannerWithString:text];
+    return [scanner scanInt:value] && scanner.isAtEnd;
 }
 
 @interface CameraController () <AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate>
@@ -94,6 +131,11 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
 @property (nonatomic, readwrite) BOOL isLocked;
 @property (nonatomic, readwrite) BOOL hasMic;
 @property (nonatomic, readwrite) BOOL isMicOn;
+@property (nonatomic, readwrite) BOOL canStabilize;
+@property (nonatomic, readwrite) BOOL canFixWhiteBalance;
+@property (nonatomic, readwrite) BOOL canFocusNear;
+/// The status line's name for the stabilization, such as "Stab off", or nil on a camera without it.
+@property (nonatomic, copy) NSString *stabilizationName;
 /// The camera mode's size, such as "1080p", once the camera runs.
 @property (nonatomic, copy) NSString *formatName;
 /// The frames the camera delivered in the last second.
@@ -125,9 +167,14 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     CGPoint _facePoint;
     double _lastFaceTime;
     BOOL _faceTimeoutScheduled;
+    CameraOptions *_activeOptions;
+    MotionState _motion;
+    double _stabilizationChangedAt;
+    BOOL _stabilizationCheckScheduled;
     // Used on _videoQueue only.
     int _framesThisSecond;
     dispatch_source_t _frameTimer;
+    MotionDetector *_motionDetector;
 }
 
 - (instancetype)init {
@@ -154,6 +201,11 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     _debugInput = [NSMutableData data];
     _videoOrientation = AVCaptureVideoOrientationLandscapeRight;
     _facePoint = CGPointMake(0.5, 0.5);
+    _options = [CameraOptions saved];
+    _activeOptions = [_options copy];
+    _stabilizationChangedAt = -INFINITY;
+    _motionDetector = [MotionDetector new];
+    [_encoder setMaxBitRate:_options.maxBitRate];
 
     StreamServer *server = _server;
     _encoder.onEncoded = ^(NSData *data, BOOL isKeyframe) {
@@ -195,13 +247,32 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     _debugServer.onReceive = ^(NSData *data) {
         [weakSelf receiveDebug:data];
     };
+    dispatch_queue_t sessionQueue = _sessionQueue;
+    _debugServer.onClientsChanged = ^(NSUInteger count) {
+        if (count == 0) return;
+        // A new client learns the camera's state without waiting for a change.
+        dispatch_async(sessionQueue, ^{
+            [weakSelf reportMode];
+            [weakSelf reportCamera:@"client"];
+        });
+    };
     return self;
 }
 
 - (NSString *)details {
     if (!self.formatName) return @"";
-    return [NSString stringWithFormat:@"%@ · %d fps · %.1f Mbps · %@", self.formatName, self.frameRate,
-                                      self.bitRate / 1e6, FocusTargetName(self.focusTarget)];
+    CameraOptions *options = self.options;
+    NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:
+        [CameraOptions nameOfPreset:options.preset], self.formatName,
+        [NSString stringWithFormat:@"%d fps", self.frameRate], [NSString stringWithFormat:@"%.1f Mbps", self.bitRate / 1e6], nil];
+    if (self.stabilizationName) [parts addObject:self.stabilizationName];
+    if (options.exposureBias != 0) [parts addObject:[NSString stringWithFormat:@"EV %+.1f", options.exposureBias]];
+    if (options.whiteBalance && self.canFixWhiteBalance) {
+        [parts addObject:[NSString stringWithFormat:@"%d K", options.whiteBalance]];
+    }
+    if (options.nearFocus && self.canFocusNear) [parts addObject:@"Near"];
+    [parts addObject:FocusTargetName(self.focusTarget)];
+    return [parts componentsJoinedByString:@" · "];
 }
 
 - (void)start {
@@ -210,6 +281,9 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     [_speakerServer start];
     [_debugServer start];
     [self startFrameCounter];
+    MotionDetector *motionDetector = _motionDetector;
+    dispatch_queue_t videoQueue = _videoQueue;
+    dispatch_async(_videoQueue, ^{ [motionDetector startOnQueue:videoQueue]; });
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
         if (!granted) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -231,7 +305,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
                 [self->_session startRunning];
             });
             // A session that falls back to the preset's mode can reset the frame rates as it starts.
-            [self withDeviceLock:^(AVCaptureDevice *device) { ApplyFrameRates(device); }];
+            [self withDeviceLock:^(AVCaptureDevice *device) { ApplyFrameRates(device, self->_activeOptions.preset); }];
         }];
     }];
 }
@@ -248,6 +322,7 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
             dispatch_source_cancel(self->_frameTimer);
             self->_frameTimer = nil;
         }
+        [self->_motionDetector stop];
         [self->_encoder reset];
     });
 }
@@ -284,11 +359,9 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
         self->_deviceLocked = lock;
         AVCaptureFocusMode focus = lock ? AVCaptureFocusModeLocked : AVCaptureFocusModeContinuousAutoFocus;
         AVCaptureExposureMode exposure = lock ? AVCaptureExposureModeLocked : AVCaptureExposureModeContinuousAutoExposure;
-        AVCaptureWhiteBalanceMode whiteBalance = lock
-            ? AVCaptureWhiteBalanceModeLocked : AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance;
         if ([device isFocusModeSupported:focus]) device.focusMode = focus;
         if ([device isExposureModeSupported:exposure]) device.exposureMode = exposure;
-        if ([device isWhiteBalanceModeSupported:whiteBalance]) device.whiteBalanceMode = whiteBalance;
+        [self applyWhiteBalanceTo:device];
     }];
 }
 
@@ -311,6 +384,57 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     self.isMicOn = !self.isMicOn;
     [self changed];
     [_callAudio setMicEnabled:self.isMicOn];
+}
+
+- (void)setOptions:(CameraOptions *)options {
+    CameraOptions *copy = [options copy];
+    [self keepOptions:copy];
+    dispatch_async(_sessionQueue, ^{ [self activateOptions:copy]; });
+}
+
+/// Changes the options from the debug port, as the settings sheet does. Each change takes effect before the next
+/// command's, so commands sent together all apply.
+- (void)changeOptions:(void (^)(CameraOptions *options))change {
+    dispatch_async(_sessionQueue, ^{
+        CameraOptions *options = [self->_activeOptions copy];
+        change(options);
+        [self keepOptions:options];
+        [self activateOptions:options];
+    });
+}
+
+/// Saves the options for the next start and hands them to the main queue's readers. Called on any queue.
+- (void)keepOptions:(CameraOptions *)options {
+    [options save];
+    // The settings sheet's sliders read the options back as they move. setOptions: is the options property's
+    // setter, so this sets the variable itself.
+    if ([NSThread isMainThread]) {
+        _options = options;
+        [self changed];
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self->_options = options;
+            [self changed];
+        });
+    }
+}
+
+/// Called on _sessionQueue. Applies the options to the camera and the encoder.
+- (void)activateOptions:(CameraOptions *)options {
+    BOOL newPreset = ![options.preset isEqualToString:_activeOptions.preset];
+    _activeOptions = options;
+    AVCaptureDevice *device = _device;
+    if (device && [device lockForConfiguration:nil]) {
+        if (newPreset) ApplyFrameRates(device, options.preset);
+        [self applyOptionsTo:device];
+        [device unlockForConfiguration];
+    }
+    if ([self applyStabilization]) _stabilizationChangedAt = [NSProcessInfo processInfo].systemUptime;
+    H264Encoder *encoder = _encoder;
+    int maxBitRate = options.maxBitRate;
+    dispatch_async(_videoQueue, ^{ [encoder setMaxBitRate:maxBitRate]; });
+    if (newPreset) [self reportMode];
+    [self reportCamera:@"options"];
 }
 
 /// Called on the main queue.
@@ -341,14 +465,27 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     if ([device lockForConfiguration:nil]) {
         AVCaptureDeviceFormat *format = BestFormat(device);
         if (format) device.activeFormat = format;
-        ApplyFrameRates(device);
+        ApplyFrameRates(device, _activeOptions.preset);
         if (device.isSmoothAutoFocusSupported) device.smoothAutoFocusEnabled = YES;
         if (device.isLowLightBoostSupported) device.automaticallyEnablesLowLightBoostWhenAvailable = YES;
+        [self applyOptionsTo:device];
         [device unlockForConfiguration];
     }
     [_session commitConfiguration];
     _device = device;
     [self applyOrientation];
+    AVCaptureConnection *connection = [_videoOutput connectionWithMediaType:AVMediaTypeVideo];
+    BOOL canStabilize = connection.isVideoStabilizationSupported &&
+        [device.activeFormat isVideoStabilizationModeSupported:AVCaptureVideoStabilizationModeStandard];
+    BOOL canFixWhiteBalance = device.isLockingWhiteBalanceWithCustomDeviceGainsSupported;
+    BOOL canFocusNear = device.isAutoFocusRangeRestrictionSupported;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.canStabilize = canStabilize;
+        self.canFixWhiteBalance = canFixWhiteBalance;
+        self.canFocusNear = canFocusNear;
+        [self changed];
+    });
+    [self applyStabilization];
     // The encoder plans its bitrate and keyframes around the mode's top rate.
     double frameDuration = CMTimeGetSeconds(device.activeVideoMinFrameDuration);
     if (frameDuration > 0) {
@@ -414,8 +551,138 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
     });
 }
 
-/// Counts the frames the camera delivers each second, for the status line and the debug port,
-/// and adapts the encoder's bitrate to how far the PC fell behind in that second.
+/// Called on _sessionQueue with the device locked. Sets the exposure compensation, the white balance and the focus
+/// range the user picked.
+- (void)applyOptionsTo:(AVCaptureDevice *)device {
+    float bias = MIN(MAX(_activeOptions.exposureBias, device.minExposureTargetBias), device.maxExposureTargetBias);
+    [device setExposureTargetBias:bias completionHandler:nil];
+    if (device.isAutoFocusRangeRestrictionSupported) {
+        device.autoFocusRangeRestriction = _activeOptions.nearFocus
+            ? AVCaptureAutoFocusRangeRestrictionNear : AVCaptureAutoFocusRangeRestrictionNone;
+    }
+    [self applyWhiteBalanceTo:device];
+}
+
+/// Called on _sessionQueue with the device locked. A fixed white balance holds the user's temperature; otherwise
+/// iOS's auto white balance runs, or holds while Lock is on.
+- (void)applyWhiteBalanceTo:(AVCaptureDevice *)device {
+    int kelvins = _activeOptions.whiteBalance;
+    if (kelvins && device.isLockingWhiteBalanceWithCustomDeviceGainsSupported) {
+        AVCaptureWhiteBalanceTemperatureAndTintValues values = {.temperature = kelvins, .tint = 0};
+        AVCaptureWhiteBalanceGains gains = [device deviceWhiteBalanceGainsForTemperatureAndTintValues:values];
+        // The camera takes only gains from 1 to its maximum.
+        float maxGain = device.maxWhiteBalanceGain;
+        gains.redGain = MIN(MAX(gains.redGain, 1), maxGain);
+        gains.greenGain = MIN(MAX(gains.greenGain, 1), maxGain);
+        gains.blueGain = MIN(MAX(gains.blueGain, 1), maxGain);
+        [device setWhiteBalanceModeLockedWithDeviceWhiteBalanceGains:gains completionHandler:nil];
+        return;
+    }
+    AVCaptureWhiteBalanceMode mode = _deviceLocked
+        ? AVCaptureWhiteBalanceModeLocked : AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance;
+    if ([device isWhiteBalanceModeSupported:mode]) device.whiteBalanceMode = mode;
+}
+
+/// Called on _sessionQueue. Sets the stabilization the user picked or, in Auto, the one the motion calls for: off
+/// while the phone stands still, and on while it shakes. Returns whether the stabilization changed.
+- (BOOL)applyStabilization {
+    AVCaptureDevice *device = _device;
+    AVCaptureConnection *connection = [_videoOutput connectionWithMediaType:AVMediaTypeVideo];
+    if (!device || !connection.isVideoStabilizationSupported ||
+        ![device.activeFormat isVideoStabilizationModeSupported:AVCaptureVideoStabilizationModeStandard]) {
+        return NO;
+    }
+    NSString *asked = _activeOptions.stabilization;
+    BOOL on = [asked isEqualToString:@"standard"] || ([asked isEqualToString:@"auto"] && _motion == MotionStateShaking);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.stabilizationName = on ? @"Stab on" : @"Stab off";
+        [self changed];
+    });
+    AVCaptureVideoStabilizationMode mode = on ? AVCaptureVideoStabilizationModeStandard : AVCaptureVideoStabilizationModeOff;
+    if (mode == connection.preferredVideoStabilizationMode) return NO;
+    connection.preferredVideoStabilizationMode = mode;
+    return YES;
+}
+
+/// Called on _sessionQueue when the phone started to shake or has stood still for a while.
+- (void)motionChanged:(MotionState)state {
+    _motion = state;
+    [self applyAutoStabilization];
+}
+
+/// Called on _sessionQueue. Auto stabilization follows the motion, at most once in kAutoChangeInterval.
+- (void)applyAutoStabilization {
+    if (![_activeOptions.stabilization isEqualToString:@"auto"]) return;
+    double wait = _stabilizationChangedAt + kAutoChangeInterval - [NSProcessInfo processInfo].systemUptime;
+    if (wait > 0) {
+        if (_stabilizationCheckScheduled) return;
+        _stabilizationCheckScheduled = YES;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), _sessionQueue, ^{
+            self->_stabilizationCheckScheduled = NO;
+            [self applyAutoStabilization];
+        });
+        return;
+    }
+    if (![self applyStabilization]) return;
+    _stabilizationChangedAt = [NSProcessInfo processInfo].systemUptime;
+    [self reportCamera:@"motion"];
+}
+
+/// Called on _sessionQueue. Tells the debug port the preset, the camera mode, the frame rates auto exposure moves
+/// between, and the lowest and highest rates the mode allows.
+- (void)reportMode {
+    AVCaptureDevice *device = _device;
+    if (!device) return;
+    CMVideoDimensions size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription);
+    AVFrameRateRange *range = TopRange(device);
+    [self sendDebug:@{
+        @"event": @"mode", @"preset": _activeOptions.preset, @"width": @(size.width), @"height": @(size.height),
+        @"fps": @[@(FrameRateOf(device.activeVideoMaxFrameDuration)), @(FrameRateOf(device.activeVideoMinFrameDuration))],
+        @"modeFps": @[@(range.minFrameRate), @(range.maxFrameRate)],
+    }];
+}
+
+/// Called on _sessionQueue. Tells the debug port the camera options, what the camera took of them, and what it
+/// supports.
+- (void)reportCamera:(NSString *)reason {
+    AVCaptureDevice *device = _device;
+    if (!device) return;
+    AVCaptureConnection *connection = [_videoOutput connectionWithMediaType:AVMediaTypeVideo];
+    CameraOptions *options = _activeOptions;
+    // The conversion throws on gains outside 1 to the maximum, as before the camera's first frames.
+    AVCaptureWhiteBalanceGains gains = device.deviceWhiteBalanceGains;
+    float maxGain = device.maxWhiteBalanceGain;
+    BOOL validGains = gains.redGain >= 1 && gains.greenGain >= 1 && gains.blueGain >= 1 && gains.redGain <= maxGain &&
+        gains.greenGain <= maxGain && gains.blueGain <= maxGain;
+    float kelvins = validGains ? [device temperatureAndTintValuesForDeviceWhiteBalanceGains:gains].temperature : 0;
+    BOOL canStabilize = connection.isVideoStabilizationSupported &&
+        [device.activeFormat isVideoStabilizationModeSupported:AVCaptureVideoStabilizationModeStandard];
+    [self sendDebug:@{
+        @"event": @"camera", @"reason": reason,
+        @"stabilization": @{
+            @"asked": options.stabilization, @"motion": MotionStateName(_motion), @"supported": @(canStabilize),
+            @"preferred": StabilizationModeName(connection.preferredVideoStabilizationMode),
+            @"active": StabilizationModeName(connection.activeVideoStabilizationMode),
+        },
+        @"exposureBias": @{
+            @"asked": @(options.exposureBias), @"took": @(device.exposureTargetBias),
+            @"range": @[@(device.minExposureTargetBias), @(device.maxExposureTargetBias)],
+        },
+        @"whiteBalance": @{
+            @"asked": options.whiteBalance ? @(options.whiteBalance) : @"auto",
+            @"mode": device.whiteBalanceMode == AVCaptureWhiteBalanceModeLocked ? @"locked" : @"auto",
+            @"kelvins": @(lroundf(kelvins)), @"fixable": @(device.isLockingWhiteBalanceWithCustomDeviceGainsSupported),
+        },
+        @"nearFocus": @{
+            @"asked": @(options.nearFocus), @"supported": @(device.isAutoFocusRangeRestrictionSupported),
+            @"took": @((BOOL)(device.autoFocusRangeRestriction == AVCaptureAutoFocusRangeRestrictionNear)),
+        },
+        @"maxBitRate": options.maxBitRate ? @(options.maxBitRate) : [NSNull null],
+    }];
+}
+
+/// Counts the frames the camera delivers each second, for the status line and the debug port, adapts the encoder's
+/// bitrate to how far the PC fell behind in that second, and tells auto stabilization how the phone moved.
 - (void)startFrameCounter {
     dispatch_async(_videoQueue, ^{
         if (self->_frameTimer) return;
@@ -431,10 +698,16 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
             H264Encoder *encoder = strongSelf->_encoder;
             [encoder adaptToBacklog:backlog];
             int bitRate = encoder.bitRate;
+            BOOL motionChanged = NO;
+            double rotation = [strongSelf->_motionDetector takeSecond:&motionChanged];
+            if (motionChanged) {
+                MotionState state = strongSelf->_motionDetector.state;
+                dispatch_async(strongSelf->_sessionQueue, ^{ [strongSelf motionChanged:state]; });
+            }
             NSMutableDictionary *second = [[encoder takeOutput] mutableCopy];
             [second addEntriesFromDictionary:@{
                 @"event": @"second", @"fps": @(frames), @"topFps": @(encoder.topFrameRate), @"target": @(bitRate),
-                @"pinned": @(encoder.isPinned), @"backlog": @(backlog),
+                @"pinned": @(encoder.isPinned), @"backlog": @(backlog), @"rotation": @(round(rotation * 1000) / 1000),
                 @"viewers": @{
                     @"video": @(strongSelf->_server.connectionCount), @"mic": @(strongSelf->_audioServer.connectionCount),
                     @"speaker": @(strongSelf->_speakerServer.connectionCount),
@@ -482,10 +755,15 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
 }
 
 /// Runs a debug command: "bitrate N" holds the bitrate at N bits per second, "auto" hands it back to adaptation,
-/// and "keyframe" asks for a keyframe.
+/// and "keyframe" asks for a keyframe. "preset", "stab", "ev", "wb", "near" and "maxbitrate" set the preset or a
+/// camera option as the settings sheet does, and "camera" reports the camera options.
 - (void)runDebugCommand:(NSString *)line {
     NSArray<NSString *> *words = [[line componentsSeparatedByString:@" "]
         filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    NSString *command = words.firstObject;
+    NSString *value = words.count == 2 ? words[1] : @"";
+    float number = 0;
+    int integer = 0;
     H264Encoder *encoder = _encoder;
     BOOL ok = YES;
     if (words.count == 2 && [words[0] isEqualToString:@"bitrate"] && words[1].intValue > 0 &&
@@ -496,6 +774,23 @@ static void ApplyFrameRates(AVCaptureDevice *device) {
         dispatch_async(_videoQueue, ^{ [encoder unpin]; });
     } else if (words.count == 1 && [words[0] isEqualToString:@"keyframe"]) {
         [encoder requestKeyframe];
+    } else if ([command isEqualToString:@"preset"] && [[CameraOptions presets] containsObject:value]) {
+        [self changeOptions:^(CameraOptions *options) { options.preset = value; }];
+    } else if ([command isEqualToString:@"stab"] && [[CameraOptions stabilizations] containsObject:value]) {
+        [self changeOptions:^(CameraOptions *options) { options.stabilization = value; }];
+    } else if ([command isEqualToString:@"ev"] && ParseFloat(value, &number) && fabsf(number) <= kExposureBiasLimit) {
+        [self changeOptions:^(CameraOptions *options) { options.exposureBias = number; }];
+    } else if ([command isEqualToString:@"wb"] && ([value isEqualToString:@"auto"] ||
+               (ParseInt(value, &integer) && integer >= kMinWhiteBalance && integer <= kMaxWhiteBalance))) {
+        [self changeOptions:^(CameraOptions *options) { options.whiteBalance = integer; }];
+    } else if ([command isEqualToString:@"near"] && ([value isEqualToString:@"on"] || [value isEqualToString:@"off"])) {
+        BOOL near = [value isEqualToString:@"on"];
+        [self changeOptions:^(CameraOptions *options) { options.nearFocus = near; }];
+    } else if ([command isEqualToString:@"maxbitrate"] && ([value isEqualToString:@"off"] ||
+               (ParseInt(value, &integer) && integer > 0 && integer <= kMaxPinnedBitRate))) {
+        [self changeOptions:^(CameraOptions *options) { options.maxBitRate = integer; }];
+    } else if (words.count == 1 && [command isEqualToString:@"camera"]) {
+        dispatch_async(_sessionQueue, ^{ [self reportCamera:@"command"]; });
     } else {
         ok = NO;
     }

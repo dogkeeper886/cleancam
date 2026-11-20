@@ -1,6 +1,7 @@
 #import "ViewController.h"
 
 #import "CameraController.h"
+#import "SettingsViewController.h"
 
 @implementation ViewController {
     CameraController *_camera;
@@ -69,6 +70,15 @@
         [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
         [panel.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-16],
         [panel.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-16],
+    ]];
+
+    // Top right, apart from the panel, whose button row has no room for a fourth button on an upright phone.
+    UIButton *settingsButton = [self buttonWithTitle:@"Settings" action:@selector(openSettings)];
+    settingsButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:settingsButton];
+    [NSLayoutConstraint activateConstraints:@[
+        [settingsButton.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:16],
+        [settingsButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
     ]];
 
     // iOS stops the camera when the screen really turns off, so "off" is a black screen at the lowest brightness.
@@ -150,6 +160,12 @@
 
 - (void)toggleMic {
     [_camera toggleMic];
+}
+
+- (void)openSettings {
+    SettingsViewController *settings = [[SettingsViewController alloc] initWithCamera:_camera];
+    [self presentViewController:[[UINavigationController alloc] initWithRootViewController:settings]
+                       animated:YES completion:nil];
 }
 
 - (void)turnScreenOff {

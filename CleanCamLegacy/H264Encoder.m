@@ -21,6 +21,8 @@ static const double kFloorShare = 0.2;
     // Used on the video queue only.
     /// The camera's top frame rate; rate control and keyframes plan around it.
     int _frameRate;
+    /// The user's max bitrate, or 0 for no limit.
+    int _maxBitRate;
     int _secondsWithoutBacklog;
     VTCompressionSessionRef _session;
     CIContext *_ciContext;
@@ -114,6 +116,15 @@ static const double kFloorShare = 0.2;
     [self applyRatesFor:@"frameRate"];
 }
 
+- (void)setMaxBitRate:(int)maxBitRate {
+    if (maxBitRate == _maxBitRate) return;
+    _maxBitRate = maxBitRate;
+    if (_isPinned) return;
+    _bitRate = [self targetBitRate];
+    _secondsWithoutBacklog = 0;
+    [self applyRatesFor:@"limit"];
+}
+
 - (void)pinBitRate:(int)bitRate {
     _isPinned = YES;
     _bitRate = bitRate;
@@ -147,7 +158,8 @@ static const double kFloorShare = 0.2;
 }
 
 - (int)targetBitRate {
-    return kTargetAt30fps * _frameRate / 30;
+    int usual = kTargetAt30fps * _frameRate / 30;
+    return _maxBitRate > 0 ? MIN(usual, _maxBitRate) : usual;
 }
 
 /// The settings that follow the frame rate and the bitrate; a running session takes new ones live.
