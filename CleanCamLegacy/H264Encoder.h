@@ -19,7 +19,7 @@
 - (void)requestKeyframe;
 /// The bits, frames and keyframes handed out since the last call, as the debug port's out, encoded and keyframes.
 - (NSDictionary *)takeOutput;
-/// Called on the video queue, like reset, setFrameRate and adaptToBacklog.
+/// Called on the video queue, like reset, setFrameRate, setMaxBitRate and adaptToBacklog.
 - (void)encode:(CMSampleBufferRef)sampleBuffer;
 - (void)reset;
 /// Plans rate control and keyframes around the camera's top frame rate, and restarts the bitrate at its target.
@@ -27,6 +27,9 @@
 /// Called once a second with the most sends any client had waiting.
 /// Steps the bitrate down while a client falls behind, and back up after 10 s without a backlog.
 - (void)adaptToBacklog:(int)backlog;
+/// Aims for at most maxBitRate, or the usual target when it is 0, and restarts the bitrate at the new target unless
+/// the debug port holds it.
+- (void)setMaxBitRate:(int)maxBitRate;
 /// Holds the bitrate until unpin, for the debug port.
 - (void)pinBitRate:(int)bitRate;
 /// Hands the bitrate back to adaptation, from where it is.

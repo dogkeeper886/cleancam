@@ -118,7 +118,7 @@ A free Apple ID signs CleanCam for 7 days, counted from step 5. Once the 7 days 
 
 ## iPhone 5 and 5c
 
-The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls except the presets and the camera options, and the same ports and stream formats, so the receiver stays as it is, and it builds on Linux, in GitHub Actions or on your PC.
+The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. Xcode dropped 32-bit apps years ago, and the Xcode on GitHub's macOS runners is too new to build one. `CleanCamLegacy/` is a second app for these phones, written in Objective-C for iOS 10. It has the same controls, and the same ports and stream formats, so the receiver stays as it is, and it builds on Linux, in GitHub Actions or on your PC.
 
 ![The Build workflow on GitHub builds an unsigned CleanCam-legacy.ipa on every push and publishes it with each release. On the Linux PC: 1, get the IPA with gh release download, or build it with tools/build-legacy.sh. On the iPhone 5 on iOS 10: 2, connect only this iPhone, plugged in directly, and tap Trust. On the PC: 3, sign and install CleanCam-legacy.ipa with plumesign. On the iPhone: 4, trust the developer under Device Management, with no Developer Mode. Then open CleanCam, which runs for 7 days.](docs/images/legacy-steps.png)
 
@@ -139,6 +139,9 @@ The app needs iOS 15, but a 32-bit iPhone such as the iPhone 5 stops at iOS 10. 
 
 Then open CleanCam, allow the camera and microphone prompts, and [receive on the PC](#receive-on-the-pc) as with the main app. iOS 10 asks for only these two.
 
+- **Settings:** the Settings button offers the Call and Low light presets, Auto, Off and Standard stabilization, the exposure shift, a fixed white balance, near focus and the max bitrate, and the app keeps them. It shows only what the phone's camera supports; the iPhone 5 supports all of them.
+- **Left out:** the iPhone 5 or iOS 10 rule out the OBS preset, since the camera stops at 30 fps; the WiFi preset, since the phone encodes H.264 only; the 4K preset, since the camera stops at 1080p; the lens hold and lens chips, since the phone has one back lens; Cinematic stabilization; and the heat guard, since iOS 10 can't read the phone's heat and the camera's 30 fps already meets the cap on battery.
+- **Debug port:** it takes the same commands except `lens`, `thermal`, `battery` and the left-out presets.
 - **Renew** every 7 days with step 3 and the same IPA.
 - **iPhone 5s, 6 and 6 Plus** fall between the two apps: they stop at iOS 12, which runs only 64-bit apps, while the main app needs iOS 15.
 

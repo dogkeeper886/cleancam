@@ -46,7 +46,7 @@ mkdir -p "$APP"
   docker.io/library/ubuntu:24.04 \
   "$CLANG" -target armv7-apple-ios10.0 -isysroot "$SDK" -fobjc-arc -O2 -Wall \
   -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -framework AVFoundation \
-  -framework CoreImage -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework AudioToolbox \
+  -framework CoreImage -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework AudioToolbox -framework CoreMotion \
   CleanCamLegacy/*.m -o "$APP/CleanCam"
 
 cp CleanCamLegacy/Info.plist CleanCamLegacy/Default-568h@2x.png "$APP/"
