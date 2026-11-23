@@ -151,6 +151,8 @@ Change the app from any computer: edit the Swift code in `CleanCam/`, then push.
 
 CleanCamLegacy builds on Linux instead: edit the Objective-C code in `CleanCamLegacy/`, build it with `tools/build-legacy.sh`, and install it with step 3 of [iPhone 5 and 5c](#iphone-5-and-5c). The Build workflow also builds it on a GitHub Linux runner on every push. Keep it within iOS 10's APIs; clang warns about newer ones. When you change the Swift app, port the change to `CleanCamLegacy/` too, so the iPhone 5 gets it.
 
+`tools/deploy.sh` puts the current code on the one iPhone on USB in one run. It reads the phone's iOS, builds CleanCamLegacy for iOS 10 or fetches CleanCam from the Build run of the pushed commit for iOS 15 and later, signs and installs it, and prints when the signing ends. When a step needs you, such as tapping Trust or logging in, it stops with one line that says what to do.
+
 Publish a release by pushing a `v*` tag, such as `v0.2.0`. The Build workflow attaches both IPAs and their SHA-256 sums to it. Raise the version in `project.yml` and `CleanCamLegacy/Info.plist` first.
 
 ## Setup details and troubleshooting
